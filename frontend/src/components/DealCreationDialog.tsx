@@ -81,21 +81,11 @@ export function DealCreationDialog({ onClose, onDealCreated }: DealCreationDialo
     setIsSubmitting(true);
 
     try {
-      // In a real implementation, this would create the deal folder structure
-      // and make an API call to save the deal metadata
-      
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      onDealCreated(formData);
-      
-      toast({
-        title: "Deal Created Successfully",
-        description: `"${formData.name}" has been created and is ready for document upload`,
-      });
-
+      // Call the parent component's handler which will create the actual deal
+      await onDealCreated(formData);
       onClose();
     } catch (error) {
+      console.error('Error in deal creation dialog:', error);
       toast({
         title: "Error",
         description: "Failed to create deal. Please try again.",

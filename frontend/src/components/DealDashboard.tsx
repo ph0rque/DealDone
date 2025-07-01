@@ -11,7 +11,7 @@ import {
   Search,
   Filter
 } from 'lucide-react';
-import { GetDealsList, ProcessFolder } from '../../wailsjs/go/main/App';
+import { GetDealsList, ProcessFolder, CreateDeal } from '../../wailsjs/go/main/App';
 import { DocumentUpload } from './DocumentUpload';
 import { DocumentSearch, DocumentItem } from './DocumentSearch';
 import { DocumentViewer } from './DocumentViewer';
@@ -78,8 +78,14 @@ export function DealDashboard() {
       
       setDeals(transformedDeals);
       
+      // Only auto-select first deal if no deal is currently selected and deals exist
       if (transformedDeals.length > 0 && !selectedDeal) {
         setSelectedDeal(transformedDeals[0].name);
+      }
+      
+      // If a deal was selected but no longer exists, clear selection
+      if (selectedDeal && !transformedDeals.find(d => d.name === selectedDeal)) {
+        setSelectedDeal(null);
       }
     } catch (error) {
       console.error('Error loading deals:', error);
@@ -232,23 +238,19 @@ export function DealDashboard() {
 
   const handleDealCreated = async (dealData: any) => {
     try {
-      // In a real implementation, this would:
-      // 1. Create the deal folder structure
-      // 2. Save deal metadata
-      // 3. Call backend API to register the deal
+      // Actually create the deal folder using the backend API
+      await CreateDeal(dealData.name);
       
-      // For now, add it to the local state
-      const newDeal: Deal = {
-        name: dealData.name,
-        createdAt: new Date(),
-        documentCount: 0,
-        analysisComplete: false,
-        riskScore: 0,
-        completeness: 0,
-      };
-
-      setDeals(prev => [newDeal, ...prev]);
+      // Refresh the deals list from the backend to get the newly created deal
+      await loadDeals();
+      
+      // Select the newly created deal
       setSelectedDeal(dealData.name);
+      
+      toast({
+        title: "Deal Created Successfully",
+        description: `"${dealData.name}" has been created and is ready for document upload`,
+      });
       
     } catch (error) {
       console.error('Error creating deal:', error);
@@ -442,9 +444,14 @@ export function DealDashboard() {
                 <div className="mb-6">
                   <DocumentUpload 
                     dealName={selectedDealData.name}
-                    onUploadComplete={() => {
+                    onUploadComplete={async () => {
                       setShowUpload(false);
-                      loadDeals();
+                      // Refresh deals list but keep current selection
+                      const currentSelection = selectedDeal;
+                      await loadDeals();
+                      if (currentSelection) {
+                        setSelectedDeal(currentSelection);
+                      }
                     }}
                   />
                 </div>
