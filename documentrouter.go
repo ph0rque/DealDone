@@ -118,10 +118,21 @@ func (dr *DocumentRouter) RouteDocuments(filePaths []string, dealName string) ([
 
 // RouteFolder processes all documents in a folder
 func (dr *DocumentRouter) RouteFolder(folderPath string, dealName string) ([]*RoutingResult, error) {
+	// Check if folder exists
+	if _, err := os.Stat(folderPath); os.IsNotExist(err) {
+		// Return empty results for non-existent folder
+		return []*RoutingResult{}, nil
+	}
+
 	// Get all files in folder
 	files, err := dr.getFilesInFolder(folderPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list files in folder: %w", err)
+	}
+
+	// If no files found, return empty results (not an error)
+	if len(files) == 0 {
+		return []*RoutingResult{}, nil
 	}
 
 	return dr.RouteDocuments(files, dealName)
@@ -182,9 +193,16 @@ func (dr *DocumentRouter) copyFile(src, dst string) error {
 func (dr *DocumentRouter) getFilesInFolder(folderPath string) ([]string, error) {
 	var files []string
 
+	// Check if folder exists first
+	if _, err := os.Stat(folderPath); os.IsNotExist(err) {
+		return files, nil // Return empty slice for non-existent folder
+	}
+
 	err := filepath.Walk(folderPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			// If we encounter an error accessing a specific file/folder, skip it
+			// rather than failing the entire operation
+			return nil
 		}
 
 		// Skip directories and hidden files

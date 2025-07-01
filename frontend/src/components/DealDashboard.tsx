@@ -298,16 +298,26 @@ export function DealDashboard() {
       
       // Check if the error is due to an empty folder or missing folder
       const errorMessage = error instanceof Error ? error.message : String(error);
+      console.log('Full error message:', errorMessage);
       
-      if (errorMessage.includes('no such file or directory') || errorMessage.includes('does not exist')) {
+      if (errorMessage.includes('no such file or directory') || 
+          errorMessage.includes('does not exist') ||
+          errorMessage.includes('failed to list files in folder')) {
         toast({
           title: "Analysis Complete",
           description: "No documents found in this deal folder. Upload documents first to analyze them.",
         });
+      } else if (errorMessage.includes('document router not initialized') ||
+                 errorMessage.includes('document processor not initialized')) {
+        toast({
+          title: "Service Error",
+          description: "Document analysis service is not available. Please check your configuration.",
+          variant: "destructive",
+        });
       } else {
         toast({
           title: "Error",
-          description: "Failed to process deal folder. Please try again.",
+          description: `Failed to process deal folder: ${errorMessage}`,
           variant: "destructive",
         });
       }
