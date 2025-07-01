@@ -73,53 +73,65 @@ export function FileTree() {
   const handleItemExpand = useCallback(async (item: FileSystemItem) => {
     if (!item.isDirectory) return
 
-    // Update the item's expanded state
-    const updateItemExpanded = (items: FileSystemItem[], targetId: string): FileSystemItem[] => {
-      return items.map(currentItem => {
-        if (currentItem.id === targetId) {
-          const updatedItem = { ...currentItem, isExpanded: !currentItem.isExpanded }
-          
-          // Load children if expanding and not already loaded
-          if (updatedItem.isExpanded && !updatedItem.children?.length) {
-            updatedItem.isLoading = true
-            
-            // Load children from backend
-            FileManagerAPI.listDirectory(item.path, showHidden)
-              .then(children => {
-                setRootItems(prev => 
-                  updateItemChildren(prev, targetId, children)
-                )
-              })
-              .catch(error => {
-                console.error('Failed to load children:', error)
-                toast({
-                  title: "Error",
-                  description: `Failed to load folder contents: ${error.message}`,
-                  variant: "destructive"
-                })
-                // Collapse the item on error
-                setRootItems(prev => 
-                  updateItemChildren(prev, targetId, [], false)
-                )
-              })
-          }
-          
-          return updatedItem
-        }
-        
-        if (currentItem.children) {
-          return {
-            ...currentItem,
-            children: updateItemExpanded(currentItem.children, targetId)
-          }
-        }
-        
-        return currentItem
-      })
+    const isCurrentlyExpanded = item.isExpanded
+    const targetId = item.id
+
+    // Simple toggle for collapse
+    if (isCurrentlyExpanded) {
+      setRootItems(prev => updateItemExpanded(prev, targetId, !isCurrentlyExpanded))
+      return
     }
 
-    setRootItems(prev => updateItemExpanded(prev, item.id))
+    // For expansion, check if we need to load children
+    if (!isCurrentlyExpanded && (!item.children || item.children.length === 0)) {
+      // Set loading state
+      setRootItems(prev => updateItemExpanded(prev, targetId, !isCurrentlyExpanded, true))
+
+      try {
+        console.log('Loading children for:', item.path)
+        const children = await FileManagerAPI.listDirectory(item.path, showHidden)
+        console.log('Loaded children:', children.length, 'items')
+        
+        // Update with children and remove loading state
+        setRootItems(prev => updateItemChildren(prev, targetId, children, true))
+      } catch (error) {
+        console.error('Failed to load children:', error)
+        toast({
+          title: "Error",
+          description: `Failed to load folder contents: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          variant: "destructive"
+        })
+        
+        // Collapse the item on error and remove loading state
+        setRootItems(prev => updateItemExpanded(prev, targetId, false, false))
+      }
+    } else {
+      // Just toggle if children already exist
+      setRootItems(prev => updateItemExpanded(prev, targetId, !isCurrentlyExpanded))
+    }
   }, [showHidden, toast])
+
+  // Helper function to update item expanded state
+  const updateItemExpanded = (items: FileSystemItem[], targetId: string, isExpanded: boolean, isLoading = false): FileSystemItem[] => {
+    return items.map(currentItem => {
+      if (currentItem.id === targetId) {
+        return {
+          ...currentItem,
+          isExpanded,
+          isLoading
+        }
+      }
+      
+      if (currentItem.children) {
+        return {
+          ...currentItem,
+          children: updateItemExpanded(currentItem.children, targetId, isExpanded, isLoading)
+        }
+      }
+      
+      return currentItem
+    })
+  }
 
   // Helper function to update item children
   const updateItemChildren = (items: FileSystemItem[], targetId: string, children: FileSystemItem[], isExpanded = true): FileSystemItem[] => {
@@ -222,6 +234,7 @@ export function FileTree() {
             item={item}
             level={0}
             isSelected={selectedItemId === item.id}
+            selectedItemId={selectedItemId}
             onSelect={handleItemSelect}
             onExpand={handleItemExpand}
             onContextMenu={handleContextMenu}

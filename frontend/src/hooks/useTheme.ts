@@ -14,11 +14,11 @@ export function useTheme() {
   }, [])
 
   // Apply theme to document
-  const applyTheme = useCallback((appliedTheme: 'light' | 'dark') => {
+  const applyTheme = useCallback((appliedTheme: 'light' | 'dark' | 'dracula') => {
     const root = window.document.documentElement
-    root.classList.remove('light', 'dark')
+    root.classList.remove('light', 'dark', 'dracula')
     root.classList.add(appliedTheme)
-    setResolvedTheme(appliedTheme)
+    setResolvedTheme(appliedTheme === 'dracula' ? 'dark' : appliedTheme)
   }, [])
 
   // Set theme
@@ -26,7 +26,14 @@ export function useTheme() {
     setTheme(newTheme)
     localStorage.setItem('theme', newTheme)
 
-    const themeToApply = newTheme === 'system' ? getSystemTheme() : newTheme
+    let themeToApply: 'light' | 'dark' | 'dracula'
+    if (newTheme === 'system') {
+      themeToApply = getSystemTheme()
+    } else if (newTheme === 'dracula') {
+      themeToApply = 'dracula'
+    } else {
+      themeToApply = newTheme
+    }
     applyTheme(themeToApply)
   }, [getSystemTheme, applyTheme])
 
@@ -36,7 +43,14 @@ export function useTheme() {
     const initialTheme = savedTheme || 'system'
     setTheme(initialTheme)
 
-    const themeToApply = initialTheme === 'system' ? getSystemTheme() : initialTheme
+    let themeToApply: 'light' | 'dark' | 'dracula'
+    if (initialTheme === 'system') {
+      themeToApply = getSystemTheme()
+    } else if (initialTheme === 'dracula') {
+      themeToApply = 'dracula'
+    } else {
+      themeToApply = initialTheme
+    }
     applyTheme(themeToApply)
   }, [getSystemTheme, applyTheme])
 

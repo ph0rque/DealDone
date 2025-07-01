@@ -9,6 +9,7 @@ interface TreeNodeProps {
   item: FileSystemItem
   level: number
   isSelected: boolean
+  selectedItemId?: string | null
   onSelect: (item: FileSystemItem) => void
   onExpand: (item: FileSystemItem) => void
   onContextMenu?: (item: FileSystemItem, event: React.MouseEvent) => void
@@ -22,6 +23,7 @@ export function TreeNode({
   item,
   level,
   isSelected,
+  selectedItemId,
   onSelect,
   onExpand,
   onContextMenu,
@@ -119,7 +121,8 @@ export function TreeNode({
               key={child.id}
               item={child}
               level={level + 1}
-              isSelected={false} // Child selection logic would be handled by parent
+              isSelected={selectedItemId === child.id}
+              selectedItemId={selectedItemId}
               onSelect={onSelect}
               onExpand={onExpand}
               onContextMenu={onContextMenu}

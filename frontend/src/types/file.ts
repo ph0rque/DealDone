@@ -69,7 +69,7 @@ export interface FileManagerState {
 }
 
 // Theme types
-export type Theme = 'light' | 'dark' | 'system'
+export type Theme = 'light' | 'dark' | 'dracula' | 'system'
 
 // File type categories for icons
 export type FileType = 
