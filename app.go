@@ -13,11 +13,14 @@ type App struct {
 	ctx               context.Context
 	configService     *ConfigService
 	folderManager     *FolderManager
+	permissionChecker *PermissionChecker
 	templateManager   *TemplateManager
-	documentRouter    *DocumentRouter
+	templateDiscovery *TemplateDiscovery
 	documentProcessor *DocumentProcessor
-	aiConfigManager   *AIConfigManager
 	aiService         *AIService
+	ocrService        *OCRService
+	documentRouter    *DocumentRouter
+	aiConfigManager   *AIConfigManager
 }
 
 // NewApp creates a new App application struct
@@ -25,7 +28,7 @@ func NewApp() *App {
 	return &App{}
 }
 
-// Startup is called when the app starts. The context is saved
+// startup is called when the app starts. The context is saved
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
@@ -42,8 +45,14 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize folder manager
 	a.folderManager = NewFolderManager(configService)
 
+	// Initialize permission checker
+	a.permissionChecker = NewPermissionChecker()
+
 	// Initialize template manager
 	a.templateManager = NewTemplateManager(configService)
+
+	// Initialize template discovery
+	a.templateDiscovery = NewTemplateDiscovery(a.templateManager)
 
 	// Initialize AI configuration manager
 	aiConfigManager, err := NewAIConfigManager(configService)
@@ -62,6 +71,9 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize AI service with config
 	aiService := NewAIService(aiConfigManager.GetConfig())
 	a.aiService = aiService
+
+	// Initialize OCR service
+	a.ocrService = NewOCRService("") // No default provider
 
 	// Initialize document processor and router
 	a.documentProcessor = NewDocumentProcessor(aiService)
@@ -538,4 +550,39 @@ func (a *App) ExportAIConfig() (map[string]interface{}, error) {
 func (a *App) ImportAIConfig(config map[string]interface{}) error {
 	// Import configuration
 	return nil
+}
+
+// DiscoverTemplates performs comprehensive template discovery
+func (a *App) DiscoverTemplates() ([]TemplateInfo, error) {
+	return a.templateDiscovery.DiscoverTemplates()
+}
+
+// SearchTemplates searches templates with filters
+func (a *App) SearchTemplates(query string, filters map[string]string) ([]TemplateInfo, error) {
+	return a.templateDiscovery.SearchTemplates(query, filters)
+}
+
+// GetTemplateCategories returns available template categories
+func (a *App) GetTemplateCategories() []string {
+	return a.templateDiscovery.GetTemplateCategories()
+}
+
+// GetTemplateByID retrieves a template by its ID
+func (a *App) GetTemplateByID(id string) (*TemplateInfo, error) {
+	return a.templateDiscovery.GetTemplateByID(id)
+}
+
+// OrganizeTemplatesByCategory organizes templates by category
+func (a *App) OrganizeTemplatesByCategory() (map[string][]TemplateInfo, error) {
+	return a.templateDiscovery.OrganizeTemplatesByCategory()
+}
+
+// ImportTemplate imports a new template with metadata
+func (a *App) ImportTemplate(sourcePath string, metadata *TemplateMetadata) error {
+	return a.templateDiscovery.ImportTemplate(sourcePath, metadata)
+}
+
+// SaveTemplateMetadata saves metadata for a template
+func (a *App) SaveTemplateMetadata(templatePath string, metadata *TemplateMetadata) error {
+	return a.templateDiscovery.SaveTemplateMetadata(templatePath, metadata)
 }
