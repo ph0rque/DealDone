@@ -265,17 +265,38 @@ export function DealDashboard() {
   const processDealFolder = async (dealName: string) => {
     try {
       const results = await ProcessFolder(`Deals/${dealName}`, dealName);
-      toast({
-        title: "Folder Processed",
-        description: `Processed ${results.length} documents`,
-      });
+      
+      if (results && results.length > 0) {
+        toast({
+          title: "Folder Processed",
+          description: `Processed ${results.length} documents`,
+        });
+      } else {
+        toast({
+          title: "Analysis Complete",
+          description: "No documents found to process in this deal folder",
+        });
+      }
+      
       await loadDeals();
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to process deal folder",
-        variant: "destructive",
-      });
+      console.error('Error processing deal folder:', error);
+      
+      // Check if the error is due to an empty folder or missing folder
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      if (errorMessage.includes('no such file or directory') || errorMessage.includes('does not exist')) {
+        toast({
+          title: "Analysis Complete",
+          description: "No documents found in this deal folder. Upload documents first to analyze them.",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to process deal folder. Please try again.",
+          variant: "destructive",
+        });
+      }
     }
   };
 
