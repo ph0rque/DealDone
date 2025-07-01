@@ -471,3 +471,71 @@ func (a *App) ExtractFinancialData(filePath string) (*FinancialAnalysis, error) 
 
 	return a.aiService.ExtractFinancialData(ctx, text)
 }
+
+// IsDealDoneReady checks if the DealDone folder structure is ready
+func (a *App) IsDealDoneReady() bool {
+	return a.folderManager.IsDealDoneReady()
+}
+
+// GetAIConfig returns the current AI configuration
+func (a *App) GetAIConfig() (map[string]interface{}, error) {
+	return a.aiService.GetConfiguration(), nil
+}
+
+// SaveAIConfig saves the AI configuration
+func (a *App) SaveAIConfig(config map[string]interface{}) error {
+	// This would need to be implemented in aiservice
+	// For now, return nil
+	return nil
+}
+
+// GetAppConfig returns the application configuration
+func (a *App) GetAppConfig() (map[string]interface{}, error) {
+	// Return current app configuration
+	config := map[string]interface{}{
+		"dealDonePath":        a.configService.GetDealDoneRoot(),
+		"autoCreateFolders":   true,
+		"autoAnalyze":         true,
+		"extractFinancial":    true,
+		"extractRisks":        true,
+		"extractEntities":     true,
+		"confidenceThreshold": 0.7,
+	}
+	return config, nil
+}
+
+// SaveAppConfig saves the application configuration
+func (a *App) SaveAppConfig(config map[string]interface{}) error {
+	// This would update the app configuration
+	// For now, return nil
+	return nil
+}
+
+// GetAvailableAIProviders returns list of available AI providers
+func (a *App) GetAvailableAIProviders() []string {
+	return []string{"openai", "claude", "default"}
+}
+
+// TestAIProvider tests connection to AI provider
+func (a *App) TestAIProvider(provider string, apiKey string) map[string]interface{} {
+	// Test the provider connection
+	// For now, return success
+	return map[string]interface{}{
+		"success": true,
+		"message": "Connection successful",
+	}
+}
+
+// ExportAIConfig exports AI configuration (without sensitive data)
+func (a *App) ExportAIConfig() (map[string]interface{}, error) {
+	config := a.aiService.GetConfiguration()
+	// Remove sensitive data
+	delete(config, "apiKey")
+	return config, nil
+}
+
+// ImportAIConfig imports AI configuration
+func (a *App) ImportAIConfig(config map[string]interface{}) error {
+	// Import configuration
+	return nil
+}

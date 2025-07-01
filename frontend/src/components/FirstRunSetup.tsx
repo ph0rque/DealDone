@@ -6,7 +6,7 @@ import { FolderOpen, CheckCircle, AlertCircle } from 'lucide-react';
 import { Dialog } from './ui/dialog';
 
 interface FirstRunSetupProps {
-  onComplete: () => void;
+  onComplete: (path: string) => void;
 }
 
 export const FirstRunSetup: React.FC<FirstRunSetupProps> = ({ onComplete }) => {
@@ -70,7 +70,7 @@ export const FirstRunSetup: React.FC<FirstRunSetupProps> = ({ onComplete }) => {
 
     try {
       await SetDealDoneRoot(selectedPath);
-      onComplete();
+      onComplete(selectedPath);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create folder structure');
     } finally {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -49,6 +50,7 @@ type AIService struct {
 	fallbackOrder   []AIProvider
 	cache           *AICache
 	rateLimiter     *RateLimiter
+	mu              sync.RWMutex
 }
 
 // NewAIService creates a new AI service with configured providers
@@ -380,4 +382,27 @@ func (as *AIService) ExtractEntities(ctx context.Context, content string) (*Enti
 	}
 
 	return nil, fmt.Errorf("entity extraction failed: %w", lastError)
+}
+
+// GetConfiguration returns the current AI service configuration
+func (s *AIService) GetConfiguration() map[string]interface{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	config := map[string]interface{}{
+		"provider":    s.primaryProvider,
+		"enableCache": s.cache != nil,
+		"cacheExpiry": 3600, // Default cache expiry
+		"maxTokens":   4000,
+		"temperature": 0.7,
+	}
+
+	// Add provider-specific config
+	if s.primaryProvider == "openai" {
+		config["modelName"] = "gpt-4"
+	} else if s.primaryProvider == "claude" {
+		config["modelName"] = "claude-3-opus"
+	}
+
+	return config
 }
