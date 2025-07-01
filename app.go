@@ -522,6 +522,13 @@ func (a *App) IsDealDoneReady() bool {
 
 // GetAIConfig returns the current AI configuration
 func (a *App) GetAIConfig() (map[string]interface{}, error) {
+	if a.aiService == nil {
+		return map[string]interface{}{
+			"provider": "none",
+			"status":   "not initialized",
+			"error":    "AI service not available",
+		}, nil
+	}
 	return a.aiService.GetConfiguration(), nil
 }
 
@@ -571,6 +578,13 @@ func (a *App) TestAIProvider(provider string, apiKey string) map[string]interfac
 
 // ExportAIConfig exports AI configuration (without sensitive data)
 func (a *App) ExportAIConfig() (map[string]interface{}, error) {
+	if a.aiService == nil {
+		return map[string]interface{}{
+			"provider": "none",
+			"status":   "not initialized",
+			"error":    "AI service not available",
+		}, nil
+	}
 	config := a.aiService.GetConfiguration()
 	// Remove sensitive data
 	delete(config, "apiKey")
