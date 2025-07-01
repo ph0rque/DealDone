@@ -1,0 +1,199 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// Template represents a template file
+type Template struct {
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	Type     string `json:"type"` // xlsx, xls, docx, pptx
+	Size     int64  `json:"size"`
+	Modified string `json:"modified"`
+}
+
+// TemplateManager handles template file operations
+type TemplateManager struct {
+	configService *ConfigService
+}
+
+// NewTemplateManager creates a new template manager
+func NewTemplateManager(configService *ConfigService) *TemplateManager {
+	return &TemplateManager{
+		configService: configService,
+	}
+}
+
+// GetSupportedExtensions returns the list of supported template file extensions
+func (tm *TemplateManager) GetSupportedExtensions() []string {
+	return []string{".xlsx", ".xls", ".docx", ".pptx"}
+}
+
+// IsTemplateFile checks if a file is a valid template based on extension
+func (tm *TemplateManager) IsTemplateFile(filename string) bool {
+	ext := strings.ToLower(filepath.Ext(filename))
+	for _, supported := range tm.GetSupportedExtensions() {
+		if ext == supported {
+			return true
+		}
+	}
+	return false
+}
+
+// ListTemplates returns all templates in the Templates folder
+func (tm *TemplateManager) ListTemplates() ([]Template, error) {
+	templatesPath := tm.configService.GetTemplatesPath()
+
+	// Check if templates folder exists
+	if _, err := os.Stat(templatesPath); os.IsNotExist(err) {
+		return []Template{}, nil
+	}
+
+	var templates []Template
+
+	err := filepath.Walk(templatesPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip directories
+		if info.IsDir() {
+			return nil
+		}
+
+		// Check if it's a template file
+		if !tm.IsTemplateFile(info.Name()) {
+			return nil
+		}
+
+		// Note: We could get relative path here if needed in the future
+		// relPath, err := filepath.Rel(templatesPath, path)
+
+		// Determine type from extension
+		ext := strings.ToLower(filepath.Ext(info.Name()))
+		fileType := strings.TrimPrefix(ext, ".")
+
+		template := Template{
+			Name:     strings.TrimSuffix(info.Name(), ext),
+			Path:     path,
+			Type:     fileType,
+			Size:     info.Size(),
+			Modified: info.ModTime().Format("2006-01-02 15:04:05"),
+		}
+
+		templates = append(templates, template)
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to list templates: %w", err)
+	}
+
+	return templates, nil
+}
+
+// ValidateTemplatesFolder checks if the templates folder exists and is accessible
+func (tm *TemplateManager) ValidateTemplatesFolder() error {
+	templatesPath := tm.configService.GetTemplatesPath()
+
+	// Check if folder exists
+	info, err := os.Stat(templatesPath)
+	if os.IsNotExist(err) {
+		return fmt.Errorf("templates folder does not exist: %s", templatesPath)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to access templates folder: %w", err)
+	}
+
+	// Check if it's a directory
+	if !info.IsDir() {
+		return fmt.Errorf("templates path is not a directory: %s", templatesPath)
+	}
+
+	// Check read permissions
+	testFile := filepath.Join(templatesPath, ".test_read")
+	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+		return fmt.Errorf("templates folder is not writable: %w", err)
+	}
+	os.Remove(testFile)
+
+	return nil
+}
+
+// CopyTemplateToAnalysis copies a template to a deal's analysis folder
+func (tm *TemplateManager) CopyTemplateToAnalysis(templatePath, dealName string) (string, error) {
+	// Validate template exists
+	if _, err := os.Stat(templatePath); os.IsNotExist(err) {
+		return "", fmt.Errorf("template does not exist: %s", templatePath)
+	}
+
+	// Get destination path
+	dealsPath := tm.configService.GetDealsPath()
+	analysisPath := filepath.Join(dealsPath, dealName, "analysis")
+
+	// Ensure analysis folder exists
+	if err := os.MkdirAll(analysisPath, 0755); err != nil {
+		return "", fmt.Errorf("failed to create analysis folder: %w", err)
+	}
+
+	// Get template filename
+	templateName := filepath.Base(templatePath)
+	destPath := filepath.Join(analysisPath, templateName)
+
+	// Check if file already exists
+	if _, err := os.Stat(destPath); err == nil {
+		// Add timestamp to filename to avoid overwriting
+		ext := filepath.Ext(templateName)
+		base := strings.TrimSuffix(templateName, ext)
+		timestamp := fmt.Sprintf("_%d", os.Getpid())
+		destPath = filepath.Join(analysisPath, base+timestamp+ext)
+	}
+
+	// Copy file
+	source, err := os.Open(templatePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open template: %w", err)
+	}
+	defer source.Close()
+
+	dest, err := os.Create(destPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create destination file: %w", err)
+	}
+	defer dest.Close()
+
+	if _, err := dest.ReadFrom(source); err != nil {
+		return "", fmt.Errorf("failed to copy template: %w", err)
+	}
+
+	return destPath, nil
+}
+
+// GetTemplateCount returns the number of templates available
+func (tm *TemplateManager) GetTemplateCount() (int, error) {
+	templates, err := tm.ListTemplates()
+	if err != nil {
+		return 0, err
+	}
+	return len(templates), nil
+}
+
+// TemplateExists checks if a specific template exists
+func (tm *TemplateManager) TemplateExists(templateName string) bool {
+	templates, err := tm.ListTemplates()
+	if err != nil {
+		return false
+	}
+
+	for _, template := range templates {
+		if template.Name == templateName || filepath.Base(template.Path) == templateName {
+			return true
+		}
+	}
+
+	return false
+}

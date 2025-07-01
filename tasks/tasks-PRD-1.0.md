@@ -5,23 +5,31 @@ Based on PRD: `PRD-1.0.md`
 ## Relevant Files
 
 ### Backend (Go/Wails)
-- `app.go` - Extend with document processing operations
+- `app.go` - Extend with document processing operations ✓
 - `filemanager.go` - Add template management and folder creation logic
+- `config.go` - Configuration for DealDone paths and settings ✓
+- `config_test.go` - Unit tests for configuration ✓
+- `foldermanager.go` - Folder structure creation and management ✓
+- `foldermanager_test.go` - Unit tests for folder manager ✓
+- `templatemanager.go` - Template copying and data population logic ✓
+- `templatemanager_test.go` - Unit tests for template manager ✓
+- `permissions.go` - Permission checking and validation ✓
+- `permissions_test.go` - Unit tests for permissions ✓
+- `defaulttemplates.go` - Default template generation ✓
+- `defaulttemplates_test.go` - Unit tests for default templates ✓
 - `documentprocessor.go` - Core document analysis and categorization engine
 - `documentprocessor_test.go` - Unit tests for document processor
 - `aiservice.go` - AI integration for document analysis and chat
 - `aiservice_test.go` - Unit tests for AI service
-- `templatemanager.go` - Template copying and data population logic
-- `templatemanager_test.go` - Unit tests for template manager
 - `learningservice.go` - Machine learning correction tracking
 - `learningservice_test.go` - Unit tests for learning service
 - `filewatcher.go` - File system monitoring service
 - `filewatcher_test.go` - Unit tests for file watcher
 - `types.go` - Extend with document analysis data structures
-- `config.go` - Configuration for DealDone paths and settings
 
 ### Frontend (React/TypeScript)
-- `frontend/src/App.tsx` - Update with document analysis features
+- `frontend/src/App.tsx` - Update with document analysis features ✓
+- `frontend/src/components/FirstRunSetup.tsx` - First-run setup flow ✓
 - `frontend/src/components/DragDropZone.tsx` - Main drag-and-drop interface
 - `frontend/src/components/DragDropZone.test.tsx` - Tests for drag-drop functionality
 - `frontend/src/components/DocumentList.tsx` - Document categorization view
@@ -57,13 +65,13 @@ Based on PRD: `PRD-1.0.md`
 
 ## Tasks
 
-- [ ] 1.0 Folder Structure and Initial Setup
-  - [ ] 1.1 Create configuration system for DealDone root folder location
-  - [ ] 1.2 Implement folder structure creation logic (DealDone/Templates/, DealDone/Deals/)
-  - [ ] 1.3 Build first-run setup flow for users to configure paths
-  - [ ] 1.4 Create template folder validation and monitoring
-  - [ ] 1.5 Implement permissions checking for folder access
-  - [ ] 1.6 Add default template examples for common use cases
+- [x] 1.0 Folder Structure and Initial Setup
+  - [x] 1.1 Create configuration system for DealDone root folder location
+  - [x] 1.2 Implement folder structure creation logic (DealDone/Templates/, DealDone/Deals/)
+  - [x] 1.3 Build first-run setup flow for users to configure paths
+  - [x] 1.4 Create template folder validation and monitoring
+  - [x] 1.5 Implement permissions checking for folder access
+  - [x] 1.6 Add default template examples for common use cases
 
 - [ ] 2.0 Document Processing Pipeline
   - [ ] 2.1 Create document type detection service using AI/ML
