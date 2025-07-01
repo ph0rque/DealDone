@@ -1,5 +1,93 @@
 # Active Context
 
+## Current Task
+Completed Task 2.0 - Document Processing Pipeline
+Ready for Task 3.0 - AI Integration Layer
+
+## Recent Implementation
+
+### Document Processing Components
+1. **DocumentProcessor** (`documentprocessor.go`)
+   - Document type detection with AI/ML interface
+   - Rule-based classification fallback
+   - Support for multiple file formats
+   - Metadata extraction
+   - Batch processing capabilities
+
+2. **OCR Service** (`ocrservice.go`)
+   - Framework for OCR integration
+   - Support for image and PDF processing
+   - Multi-language support structure
+   - Batch OCR processing
+   - Table extraction capabilities
+
+3. **Document Router** (`documentrouter.go`)
+   - Intelligent document routing to deal folders
+   - Automatic deal folder creation
+   - Classification-based routing (legal/financial/general)
+   - Batch routing support
+   - Move vs copy operations
+   - Processing statistics
+
+### Backend Integration
+- Updated `app.go` with all new services
+- Exposed methods for frontend:
+  - ProcessDocument/ProcessDocuments
+  - AnalyzeDocument
+  - ExtractTextFromDocument
+  - GetDocumentMetadata
+  - GetDealsList/CreateDeal
+  - GetSupportedFileTypes
+
+## Next Focus: AI Integration Layer (Task 3.0)
+
+### Required Components
+1. **AI Service Interface**
+   - Abstract interface for multiple providers
+   - Provider-agnostic API
+
+2. **OpenAI Integration**
+   - GPT-4 for document analysis
+   - Custom prompts for M&A context
+   - Structured response parsing
+
+3. **Claude Integration**
+   - Alternative AI provider
+   - Fallback capabilities
+   - Provider comparison
+
+4. **Prompt Engineering**
+   - Document type classification prompts
+   - Financial data extraction prompts
+   - Risk assessment prompts
+   - Deal insights prompts
+
+5. **Infrastructure**
+   - Rate limiting
+   - Response caching
+   - Error handling and retries
+   - API key management
+
+## Technical Decisions
+- AI service as pluggable interface
+- Environment-based configuration for API keys
+- Structured prompt templates
+- JSON response format for parsing
+- Local caching to reduce API calls
+
+## Integration Points
+- DocumentProcessor will use AI for classification
+- Analysis engine will use AI for insights
+- Template population will use AI for data extraction
+- UI will show AI confidence scores
+
+## Challenges to Address
+- API rate limits
+- Cost management
+- Response consistency
+- Fallback strategies
+- Security of API keys
+
 ## Current Focus
 Just completed Task 1.0 (Folder Structure and Initial Setup) for the automated document analysis feature (PRD 1.0). The application now has:
 - A configuration system that handles OS-specific paths

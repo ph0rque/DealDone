@@ -197,3 +197,19 @@ func (tm *TemplateManager) TemplateExists(templateName string) bool {
 
 	return false
 }
+
+// GenerateDefaultTemplates creates the default template files
+func (tm *TemplateManager) GenerateDefaultTemplates() error {
+	templatesPath := tm.configService.GetTemplatesPath()
+
+	// Ensure templates directory exists
+	if err := os.MkdirAll(templatesPath, 0755); err != nil {
+		return fmt.Errorf("failed to create templates directory: %w", err)
+	}
+
+	// Create default templates generator
+	generator := NewDefaultTemplateGenerator(templatesPath)
+
+	// Generate the default templates
+	return generator.GenerateDefaultTemplates()
+}

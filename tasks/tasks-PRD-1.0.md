@@ -1,131 +1,106 @@
-# Task List: Automated Document Analysis & Management
+# Tasks for PRD 1.0 - Automated Document Analysis for M&A
 
-Based on PRD: `PRD-1.0.md`
+## Task 1: Configuration and First-Run Setup ✓
+- [x] 1.0 Configuration and First-Run Setup
+  - [x] 1.1 Create configuration system for app settings
+  - [x] 1.2 Build folder structure creation for DealDone directory
+  - [x] 1.3 Implement first-run setup flow
+  - [x] 1.4 Add template validation and discovery
+  - [x] 1.5 Create permission checking for folders
+  - [x] 1.6 Generate default templates if none exist
 
-## Relevant Files
+## Task 2: Document Processing Pipeline ✓
+- [x] 2.0 Document Processing Pipeline
+  - [x] 2.1 Create document type detection service using AI/ML
+  - [x] 2.2 Implement OCR integration for scanned documents
+  - [x] 2.3 Build document classification logic (legal/financial/general)
+  - [x] 2.4 Create document routing system to appropriate folders
+  - [x] 2.5 Implement drag-and-drop file handling in backend
+  - [x] 2.6 Add support for batch document processing
+  - [x] 2.7 Create document metadata extraction system
+  - [x] 2.8 Implement error handling for unsupported file types
 
-### Backend (Go/Wails)
-- `app.go` - Extend with document processing operations ✓
-- `filemanager.go` - Add template management and folder creation logic
-- `config.go` - Configuration for DealDone paths and settings ✓
-- `config_test.go` - Unit tests for configuration ✓
-- `foldermanager.go` - Folder structure creation and management ✓
-- `foldermanager_test.go` - Unit tests for folder manager ✓
-- `templatemanager.go` - Template copying and data population logic ✓
-- `templatemanager_test.go` - Unit tests for template manager ✓
-- `permissions.go` - Permission checking and validation ✓
-- `permissions_test.go` - Unit tests for permissions ✓
-- `defaulttemplates.go` - Default template generation ✓
-- `defaulttemplates_test.go` - Unit tests for default templates ✓
-- `documentprocessor.go` - Core document analysis and categorization engine
-- `documentprocessor_test.go` - Unit tests for document processor
-- `aiservice.go` - AI integration for document analysis and chat
-- `aiservice_test.go` - Unit tests for AI service
-- `learningservice.go` - Machine learning correction tracking
-- `learningservice_test.go` - Unit tests for learning service
-- `filewatcher.go` - File system monitoring service
-- `filewatcher_test.go` - Unit tests for file watcher
-- `types.go` - Extend with document analysis data structures
+## Task 3: AI Integration Layer
+- [ ] 3.0 AI Integration Layer
+  - [ ] 3.1 Design AI service interface for multiple providers
+  - [ ] 3.2 Implement OpenAI integration for document analysis
+  - [ ] 3.3 Add Claude AI as alternative provider
+  - [ ] 3.4 Create prompt templates for document analysis
+  - [ ] 3.5 Build response parsing and standardization
+  - [ ] 3.6 Implement rate limiting and error recovery
+  - [ ] 3.7 Add caching layer for AI responses
+  - [ ] 3.8 Create fallback mechanisms for AI failures
 
-### Frontend (React/TypeScript)
-- `frontend/src/App.tsx` - Update with document analysis features ✓
-- `frontend/src/components/FirstRunSetup.tsx` - First-run setup flow ✓
-- `frontend/src/components/DragDropZone.tsx` - Main drag-and-drop interface
-- `frontend/src/components/DragDropZone.test.tsx` - Tests for drag-drop functionality
-- `frontend/src/components/DocumentList.tsx` - Document categorization view
-- `frontend/src/components/ProcessingStatus.tsx` - Real-time processing status panel
-- `frontend/src/components/ConfidenceIndicator.tsx` - Visual confidence score display
-- `frontend/src/components/AIChat.tsx` - AI interaction interface
-- `frontend/src/components/AIChat.test.tsx` - Tests for AI chat component
-- `frontend/src/components/TemplateManager.tsx` - Template selection and management UI
-- `frontend/src/components/DealFolderView.tsx` - Visual deal folder structure
-- `frontend/src/hooks/useDocumentAnalysis.ts` - Hook for document analysis operations
-- `frontend/src/hooks/useAIChat.ts` - Hook for AI chat functionality
-- `frontend/src/contexts/DocumentAnalysisContext.tsx` - Global state for document analysis
-- `frontend/src/types/document.ts` - TypeScript types for documents and analysis
-- `frontend/src/services/documentApi.ts` - API service for document operations
-- `frontend/src/services/aiApi.ts` - API service for AI interactions
-- `frontend/src/utils/documentUtils.ts` - Utility functions for document handling
+## Task 4: Template Management and Data Population
+- [ ] 4.0 Template Management and Data Population
+  - [ ] 4.1 Build template discovery and listing system
+  - [ ] 4.2 Create template selection interface backend
+  - [ ] 4.3 Implement Excel/CSV template parser
+  - [ ] 4.4 Build data extraction and mapping engine
+  - [ ] 4.5 Create field matching algorithm
+  - [ ] 4.6 Implement formula preservation in Excel
+  - [ ] 4.7 Add template versioning support
+  - [ ] 4.8 Build template validation system
 
-### Excel/Office Integration
-- `officeworker.go` - Excel and Word document manipulation
-- `officeworker_test.go` - Unit tests for office document handling
+## Task 5: Analysis Engine
+- [ ] 5.0 Analysis Engine
+  - [ ] 5.1 Create financial metrics extraction module
+  - [ ] 5.2 Build legal document risk assessment
+  - [ ] 5.3 Implement deal valuation calculator
+  - [ ] 5.4 Create competitive analysis module
+  - [ ] 5.5 Build trend analysis over multiple documents
+  - [ ] 5.6 Implement anomaly detection
+  - [ ] 5.7 Create summary report generator
+  - [ ] 5.8 Add export functionality for analysis results
 
-### Configuration Files
-- `wails.json` - Update with new build configurations
-- `.env.example` - Environment variables for AI services
+## Task 6: User Interface - Document Management
+- [ ] 6.0 User Interface - Document Management
+  - [ ] 6.1 Create deal selection/creation interface
+  - [ ] 6.2 Build drag-and-drop upload interface
+  - [ ] 6.3 Implement document preview system
+  - [ ] 6.4 Create document status dashboard
+  - [ ] 6.5 Build batch upload progress indicator
+  - [ ] 6.6 Implement document search and filter
+  - [ ] 6.7 Create document organization view
+  - [ ] 6.8 Add document action menu (move, delete, reprocess)
 
-### Notes
+## Task 7: User Interface - Analysis Views
+- [ ] 7.0 User Interface - Analysis Views
+  - [ ] 7.1 Create template selection interface
+  - [ ] 7.2 Build analysis progress indicator
+  - [ ] 7.3 Implement populated template preview
+  - [ ] 7.4 Create financial metrics dashboard
+  - [ ] 7.5 Build risk assessment visualization
+  - [ ] 7.6 Implement document insights panel
+  - [ ] 7.7 Create export options interface
+  - [ ] 7.8 Add comparison view for multiple deals
 
-- Unit tests should be placed alongside the code files they are testing
-- Use `wails dev` to run the application in development mode
-- Use `go test ./...` to run all Go tests
-- Use `npm test` in the frontend directory to run React tests
-- AI service will require API key configuration
+## Files Created/Modified:
+- ✓ config.go - Configuration management
+- ✓ config_test.go - Configuration tests
+- ✓ foldermanager.go - Folder structure management
+- ✓ foldermanager_test.go - Folder manager tests
+- ✓ templatemanager.go - Template management
+- ✓ templatemanager_test.go - Template manager tests
+- ✓ permissions.go - Permission checking
+- ✓ permissions_test.go - Permission tests
+- ✓ defaulttemplates.go - Default template generation
+- ✓ defaulttemplates_test.go - Default template tests
+- ✓ documentprocessor.go - Document processing and classification
+- ✓ documentprocessor_test.go - Document processor tests
+- ✓ aiservice.go - AI service interface
+- ✓ aiservice_test.go - AI service tests
+- ✓ ocrservice.go - OCR service implementation
+- ✓ ocrservice_test.go - OCR service tests
+- ✓ documentrouter.go - Document routing logic
+- ✓ documentrouter_test.go - Document router tests
+- ✓ app.go - Updated with new services
+- ✓ frontend/src/components/FirstRunSetup.tsx - First run UI
+- ✓ frontend/src/App.tsx - Updated with first run flow
 
-## Tasks
-
-- [x] 1.0 Folder Structure and Initial Setup
-  - [x] 1.1 Create configuration system for DealDone root folder location
-  - [x] 1.2 Implement folder structure creation logic (DealDone/Templates/, DealDone/Deals/)
-  - [x] 1.3 Build first-run setup flow for users to configure paths
-  - [x] 1.4 Create template folder validation and monitoring
-  - [x] 1.5 Implement permissions checking for folder access
-  - [x] 1.6 Add default template examples for common use cases
-
-- [ ] 2.0 Document Processing Pipeline
-  - [ ] 2.1 Create document type detection service using AI/ML
-  - [ ] 2.2 Implement OCR integration for scanned documents
-  - [ ] 2.3 Build document classification logic (legal/financial/general)
-  - [ ] 2.4 Create document routing system to appropriate folders
-  - [ ] 2.5 Implement drag-and-drop file handling in backend
-  - [ ] 2.6 Add support for batch document processing
-  - [ ] 2.7 Create document metadata extraction system
-  - [ ] 2.8 Implement error handling for unsupported file types
-
-- [ ] 3.0 Template Management and Data Population
-  - [ ] 3.1 Build template discovery and listing from Templates folder
-  - [ ] 3.2 Implement template copying mechanism to deal folders
-  - [ ] 3.3 Create Excel manipulation service for .xlsx/.xls files
-  - [ ] 3.4 Build Word document manipulation for .docx files
-  - [ ] 3.5 Implement financial data extraction from documents
-  - [ ] 3.6 Create data mapping engine for template population
-  - [ ] 3.7 Build confidence scoring algorithm for extracted data
-  - [ ] 3.8 Implement formula and formatting preservation in templates
-
-- [ ] 4.0 Continuous Document Monitoring
-  - [ ] 4.1 Create file system watcher service for deal folders
-  - [ ] 4.2 Implement document processing queue system
-  - [ ] 4.3 Build incremental update logic for analysis files
-  - [ ] 4.4 Create version history tracking for analysis updates
-  - [ ] 4.5 Implement conflict resolution for concurrent updates
-  - [ ] 4.6 Add notification system for new document processing
-  - [ ] 4.7 Create processing status persistence and recovery
-
-- [ ] 5.0 Machine Learning and Correction System
-  - [ ] 5.1 Implement change detection in modified analysis files
-  - [ ] 5.2 Create correction capture and storage mechanism
-  - [ ] 5.3 Build learning data repository structure
-  - [ ] 5.4 Implement pattern recognition for common corrections
-  - [ ] 5.5 Create confidence score adjustment based on corrections
-  - [ ] 5.6 Build feedback loop for AI model improvement
-  - [ ] 5.7 Implement correction history and analytics
-
-- [ ] 6.0 AI Interaction Interface
-  - [ ] 6.1 Create backend AI service integration layer
-  - [ ] 6.2 Implement document context management for queries
-  - [ ] 6.3 Build natural language query processing
-  - [ ] 6.4 Create hypothetical scenario analysis features
-  - [ ] 6.5 Implement industry research and trends integration
-  - [ ] 6.6 Build conversation history and context retention
-  - [ ] 6.7 Add export functionality for AI insights
-
-- [ ] 7.0 User Interface and Experience
-  - [ ] 7.1 Create main drag-and-drop zone component
-  - [ ] 7.2 Build document processing status panel
-  - [ ] 7.3 Implement progress indicators and animations
-  - [ ] 7.4 Create confidence visualization in spreadsheets
-  - [ ] 7.5 Build deal folder structure visualization
-  - [ ] 7.6 Implement error handling and user notifications
-  - [ ] 7.7 Create responsive layout for different screen sizes
-  - [ ] 7.8 Add keyboard shortcuts and accessibility features 
+## Next Tasks:
+1. Task 3.0 - AI Integration Layer (OpenAI/Claude integration)
+2. Task 4.0 - Template Management and Data Population
+3. Task 5.0 - Analysis Engine
+4. Task 6.0 - User Interface for Document Management
+5. Task 7.0 - User Interface for Analysis Views 

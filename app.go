@@ -9,10 +9,12 @@ import (
 
 // App struct
 type App struct {
-	ctx             context.Context
-	configService   *ConfigService
-	folderManager   *FolderManager
-	templateManager *TemplateManager
+	ctx               context.Context
+	configService     *ConfigService
+	folderManager     *FolderManager
+	templateManager   *TemplateManager
+	documentRouter    *DocumentRouter
+	documentProcessor *DocumentProcessor
 }
 
 // NewApp creates a new App application struct
@@ -20,16 +22,16 @@ func NewApp() *App {
 	return &App{}
 }
 
-// startup is called when the app starts. The context is saved
+// Startup is called when the app starts. The context is saved
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
-	// Initialize configuration service
+	// Initialize config service
 	configService, err := NewConfigService()
 	if err != nil {
-		// Log error but continue - will handle in UI
-		println("Error initializing config service:", err.Error())
+		// Log error but continue - will show in UI
+		fmt.Printf("Error initializing config: %v\n", err)
 		return
 	}
 	a.configService = configService
@@ -39,6 +41,11 @@ func (a *App) startup(ctx context.Context) {
 
 	// Initialize template manager
 	a.templateManager = NewTemplateManager(configService)
+
+	// Initialize document processor and router
+	aiService := NewAIService("", "", "") // No AI service for now
+	a.documentProcessor = NewDocumentProcessor(aiService)
+	a.documentRouter = NewDocumentRouter(a.folderManager, a.documentProcessor)
 }
 
 // GetHomeDirectory returns the user's home directory
@@ -77,12 +84,123 @@ func (a *App) GetDownloadsDirectory() string {
 	return filepath.Join(homeDir, "Downloads")
 }
 
-// IsFirstRun checks if this is the first time the app is running
+// IsFirstRun checks if this is the first run
 func (a *App) IsFirstRun() bool {
-	if a.configService == nil {
-		return true
+	return !a.folderManager.IsDealDoneReady()
+}
+
+// CompleteFirstRunSetup initializes the folder structure with given path
+func (a *App) CompleteFirstRunSetup(path string) error {
+	// Update config with new path
+	err := a.configService.SetDealDoneRoot(path)
+	if err != nil {
+		return fmt.Errorf("failed to save configuration: %w", err)
 	}
-	return a.configService.IsFirstRun()
+
+	// Initialize folder structure
+	err = a.folderManager.InitializeFolderStructure()
+	if err != nil {
+		return fmt.Errorf("failed to create folder structure: %w", err)
+	}
+
+	// Generate default templates
+	err = a.templateManager.GenerateDefaultTemplates()
+	if err != nil {
+		// Don't fail the setup if templates fail
+		fmt.Printf("Warning: Failed to generate default templates: %v\n", err)
+	}
+
+	return nil
+}
+
+// ProcessDocument handles document processing and routing
+func (a *App) ProcessDocument(filePath string, dealName string) (*RoutingResult, error) {
+	if a.documentRouter == nil {
+		return nil, fmt.Errorf("document router not initialized")
+	}
+
+	return a.documentRouter.RouteDocument(filePath, dealName)
+}
+
+// ProcessDocuments handles batch document processing
+func (a *App) ProcessDocuments(filePaths []string, dealName string) ([]*RoutingResult, error) {
+	if a.documentRouter == nil {
+		return nil, fmt.Errorf("document router not initialized")
+	}
+
+	return a.documentRouter.RouteDocuments(filePaths, dealName)
+}
+
+// ProcessFolder processes all documents in a folder
+func (a *App) ProcessFolder(folderPath string, dealName string) ([]*RoutingResult, error) {
+	if a.documentRouter == nil {
+		return nil, fmt.Errorf("document router not initialized")
+	}
+
+	return a.documentRouter.RouteFolder(folderPath, dealName)
+}
+
+// GetRoutingSummary returns summary statistics for routing results
+func (a *App) GetRoutingSummary(results []*RoutingResult) map[string]interface{} {
+	if a.documentRouter == nil {
+		return map[string]interface{}{
+			"error": "document router not initialized",
+		}
+	}
+
+	return a.documentRouter.GetRoutingSummary(results)
+}
+
+// GetSupportedFileTypes returns list of supported file extensions
+func (a *App) GetSupportedFileTypes() []string {
+	if a.documentProcessor == nil {
+		return []string{}
+	}
+
+	return a.documentProcessor.GetSupportedExtensions()
+}
+
+// AnalyzeDocument analyzes a document without routing it
+func (a *App) AnalyzeDocument(filePath string) (*DocumentInfo, error) {
+	if a.documentProcessor == nil {
+		return nil, fmt.Errorf("document processor not initialized")
+	}
+
+	return a.documentProcessor.ProcessDocument(filePath)
+}
+
+// GetDealsList returns list of all deals
+func (a *App) GetDealsList() ([]DealInfo, error) {
+	return a.folderManager.GetAllDeals()
+}
+
+// CreateDeal creates a new deal folder
+func (a *App) CreateDeal(dealName string) error {
+	_, err := a.folderManager.CreateDealFolder(dealName)
+	return err
+}
+
+// DealExists checks if a deal folder exists
+func (a *App) DealExists(dealName string) bool {
+	return a.folderManager.DealExists(dealName)
+}
+
+// ExtractTextFromDocument extracts text content from a document
+func (a *App) ExtractTextFromDocument(filePath string) (string, error) {
+	if a.documentProcessor == nil {
+		return "", fmt.Errorf("document processor not initialized")
+	}
+
+	return a.documentProcessor.ExtractText(filePath)
+}
+
+// GetDocumentMetadata extracts metadata from a document
+func (a *App) GetDocumentMetadata(filePath string) (map[string]interface{}, error) {
+	if a.documentProcessor == nil {
+		return nil, fmt.Errorf("document processor not initialized")
+	}
+
+	return a.documentProcessor.GetDocumentMetadata(filePath)
 }
 
 // GetDealDoneRoot returns the configured DealDone root folder path

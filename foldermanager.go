@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 )
 
 // FolderManager handles the creation and management of DealDone folder structure
@@ -136,4 +138,97 @@ func (fm *FolderManager) GetDealSubfolderPath(dealName, subfolder string) string
 // EnsureFolderExists creates a folder if it doesn't exist
 func (fm *FolderManager) EnsureFolderExists(path string) error {
 	return os.MkdirAll(path, 0755)
+}
+
+// DealInfo represents information about a deal
+type DealInfo struct {
+	Name          string    `json:"name"`
+	Path          string    `json:"path"`
+	CreatedAt     time.Time `json:"createdAt"`
+	DocumentCount int       `json:"documentCount"`
+}
+
+// IsDealDoneReady checks if the DealDone folder structure is ready
+func (fm *FolderManager) IsDealDoneReady() bool {
+	root := fm.configService.GetDealDoneRoot()
+
+	// Check if root exists
+	if _, err := os.Stat(root); os.IsNotExist(err) {
+		return false
+	}
+
+	// Check if Templates and Deals folders exist
+	templatesPath := fm.configService.GetTemplatesPath()
+	dealsPath := fm.configService.GetDealsPath()
+
+	if _, err := os.Stat(templatesPath); os.IsNotExist(err) {
+		return false
+	}
+
+	if _, err := os.Stat(dealsPath); os.IsNotExist(err) {
+		return false
+	}
+
+	return true
+}
+
+// GetAllDeals returns information about all deals
+func (fm *FolderManager) GetAllDeals() ([]DealInfo, error) {
+	dealsPath := fm.configService.GetDealsPath()
+
+	entries, err := os.ReadDir(dealsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []DealInfo{}, nil
+		}
+		return nil, fmt.Errorf("failed to read deals directory: %w", err)
+	}
+
+	deals := make([]DealInfo, 0, len(entries))
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		dealPath := filepath.Join(dealsPath, entry.Name())
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		// Count documents in deal
+		docCount := fm.countDocumentsInDeal(dealPath)
+
+		deals = append(deals, DealInfo{
+			Name:          entry.Name(),
+			Path:          dealPath,
+			CreatedAt:     info.ModTime(),
+			DocumentCount: docCount,
+		})
+	}
+
+	return deals, nil
+}
+
+// countDocumentsInDeal counts documents in all subfolders of a deal
+func (fm *FolderManager) countDocumentsInDeal(dealPath string) int {
+	count := 0
+
+	subfolders := []string{"legal", "financial", "general", "analysis"}
+	for _, subfolder := range subfolders {
+		subPath := filepath.Join(dealPath, subfolder)
+		entries, err := os.ReadDir(subPath)
+		if err != nil {
+			continue
+		}
+
+		for _, entry := range entries {
+			if !entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
+				count++
+			}
+		}
+	}
+
+	return count
 }

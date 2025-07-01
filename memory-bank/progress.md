@@ -1,9 +1,93 @@
-# Progress
+# Project Progress
 
 ## Current Status
-- Desktop file manager prototype: Completed (PRD 0.1)
-- Document analysis feature: In Progress (PRD 1.0)
-  - Task 1.0 Folder Structure and Initial Setup: ✅ COMPLETED
+- PRD 0.1 (Desktop File Manager): ✓ Completed
+- PRD 1.0 (Automated Document Analysis): In Progress
+  - Task 1.0 (Configuration & First-Run): ✓ Completed
+  - Task 2.0 (Document Processing Pipeline): ✓ Completed
+  - Task 3.0 (AI Integration Layer): Next Up
+  - Tasks 4.0-7.0: Pending
+
+## What Works
+### Desktop File Manager (PRD 0.1)
+- Tree view navigation with expand/collapse
+- File operations (create, rename, delete, copy, move)
+- Search functionality
+- Context menus
+- Dark/light theme toggle
+- Keyboard shortcuts
+- Error handling with toast notifications
+- Loading states
+- Empty state handling
+
+### Document Analysis (PRD 1.0)
+- Configuration system with OS-specific paths
+- First-run setup flow with folder selection
+- Folder structure creation (Templates/, Deals/)
+- Permission checking and validation
+- Default template generation (Financial Model, Due Diligence, Deal Summary)
+- Document type detection (AI/ML ready with rule-based fallback)
+- OCR integration framework (ready for implementation)
+- Document classification (legal/financial/general)
+- Document routing to appropriate deal folders
+- Batch document processing support
+- Metadata extraction system
+- Error handling for unsupported files
+
+## What's Left to Build
+### PRD 1.0 - Automated Document Analysis
+1. **AI Integration Layer** (Task 3.0)
+   - OpenAI/Claude integration
+   - Prompt templates
+   - Response parsing
+   - Rate limiting and caching
+
+2. **Template Management** (Task 4.0)
+   - Excel/CSV parser
+   - Data extraction and mapping
+   - Formula preservation
+   - Template versioning
+
+3. **Analysis Engine** (Task 5.0)
+   - Financial metrics extraction
+   - Risk assessment
+   - Deal valuation
+   - Report generation
+
+4. **UI - Document Management** (Task 6.0)
+   - Drag-and-drop interface
+   - Document preview
+   - Status dashboard
+   - Search and filter
+
+5. **UI - Analysis Views** (Task 7.0)
+   - Template selection
+   - Analysis progress
+   - Metrics dashboard
+   - Export options
+
+## Recent Changes
+### Task 2.0 Implementation (Document Processing Pipeline)
+- Created `documentprocessor.go` with AI/ML-ready document type detection
+- Implemented `ocrservice.go` for OCR integration (placeholder for actual implementation)
+- Built `documentrouter.go` for intelligent document routing
+- Added batch processing capabilities
+- Integrated all services into `app.go`
+- Exposed new methods to frontend via Wails bindings
+- Created comprehensive test coverage for all new components
+
+## Known Issues
+- OCR and AI services are placeholder implementations
+- Need actual AI provider integration (OpenAI/Claude)
+- Excel/Word manipulation not yet implemented
+- Frontend UI for document management not built
+
+## Next Steps
+1. Begin Task 3.0: AI Integration Layer
+2. Design AI service interface for multiple providers
+3. Implement OpenAI integration
+4. Add Claude AI as alternative
+5. Create prompt templates for document analysis
 
 ## Completed Work
 
