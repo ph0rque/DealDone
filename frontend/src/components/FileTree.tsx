@@ -227,8 +227,8 @@ export function FileTree() {
       </div>
 
       {/* Tree items */}
-      <div className="space-y-0.5">
-        {rootItems.map((item) => (
+      <div className="space-y-0">
+        {rootItems.map((item, index) => (
           <TreeNode
             key={item.id}
             item={item}
@@ -242,6 +242,7 @@ export function FileTree() {
             clipboardItems={clipboardItems}
             onCopy={handleCopy}
             onCut={handleCut}
+            isLast={index === rootItems.length - 1}
           />
         ))}
       </div>
