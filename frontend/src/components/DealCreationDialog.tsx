@@ -124,16 +124,16 @@ export function DealCreationDialog({ onClose, onDealCreated }: DealCreationDialo
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-card w-full max-w-2xl max-h-[90vh] rounded-lg shadow-xl flex flex-col border">
+      <div className="bg-white dark:bg-gray-800 w-full max-w-2xl max-h-[90vh] rounded-lg shadow-xl flex flex-col border border-gray-200 dark:border-gray-700">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-border">
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center space-x-3">
-            <div className="p-2 bg-primary/10 rounded-lg">
-              <Folder className="h-5 w-5 text-primary" />
+            <div className="p-2 bg-blue-100 dark:bg-blue-900/20 rounded-lg">
+              <Folder className="h-5 w-5 text-blue-600 dark:text-blue-400" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-card-foreground">Create New Deal</h2>
-              <p className="text-sm text-muted-foreground">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Create New Deal</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 Set up a new deal and create its folder structure
               </p>
             </div>
@@ -143,48 +143,48 @@ export function DealCreationDialog({ onClose, onDealCreated }: DealCreationDialo
           </Button>
         </div>
 
-        {/* Form */}
+                {/* Form */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-8">
           {/* Basic Information */}
           <div className="space-y-4">
-            <h3 className="text-lg font-semibold flex items-center text-card-foreground">
-              <Building2 className="h-5 w-5 mr-2 text-primary" />
+            <h3 className="text-lg font-semibold flex items-center text-gray-900 dark:text-gray-100">
+              <Building2 className="h-5 w-5 mr-2 text-blue-600 dark:text-blue-400" />
               Basic Information
             </h3>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-card-foreground">
-                  Deal Name <span className="text-destructive">*</span>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Deal Name <span className="text-red-500">*</span>
                 </label>
-                                 <Input
+                 <Input
                    type="text"
                    value={formData.name}
                    onChange={(e) => handleChange('name', e.target.value)}
                    placeholder="e.g., TechCorp Acquisition"
-                   className={errors.name ? 'border-destructive' : ''}
+                   className={errors.name ? 'border-red-500' : ''}
                  />
                 {errors.name && (
-                  <p className="text-destructive text-xs flex items-center">
+                  <p className="text-red-500 text-xs flex items-center">
                     <AlertCircle className="h-3 w-3 mr-1" />
                     {errors.name}
                   </p>
                 )}
               </div>
 
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-card-foreground">
-                  Target Company <span className="text-destructive">*</span>
+                            <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Target Company <span className="text-red-500">*</span>
                 </label>
-                                 <Input
+                 <Input
                    type="text"
                    value={formData.targetCompany}
                    onChange={(e) => handleChange('targetCompany', e.target.value)}
                    placeholder="e.g., TechCorp Inc."
-                   className={errors.targetCompany ? 'border-destructive' : ''}
+                   className={errors.targetCompany ? 'border-red-500' : ''}
                  />
                  {errors.targetCompany && (
-                   <p className="text-destructive text-xs flex items-center">
+                   <p className="text-red-500 text-xs flex items-center">
                      <AlertCircle className="h-3 w-3 mr-1" />
                      {errors.targetCompany}
                    </p>
@@ -192,13 +192,13 @@ export function DealCreationDialog({ onClose, onDealCreated }: DealCreationDialo
                </div>
  
                <div className="space-y-2">
-                 <label className="block text-sm font-medium text-card-foreground">
+                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                    Deal Type
                  </label>
                  <select
                    value={formData.dealType}
                    onChange={(e) => handleChange('dealType', e.target.value)}
-                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                  >
                    <option value="acquisition">Acquisition</option>
                    <option value="merger">Merger</option>
@@ -209,18 +209,18 @@ export function DealCreationDialog({ onClose, onDealCreated }: DealCreationDialo
                </div>
  
                <div className="space-y-2">
-                 <label className="block text-sm font-medium text-card-foreground">
-                   Industry <span className="text-destructive">*</span>
+                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                   Industry <span className="text-red-500">*</span>
                  </label>
-                                  <Input
+                 <Input
                    type="text"
                    value={formData.industry}
                    onChange={(e) => handleChange('industry', e.target.value)}
                  placeholder="e.g., Technology, Healthcare"
-                 className={errors.industry ? 'border-destructive' : ''}
+                 className={errors.industry ? 'border-red-500' : ''}
                />
                {errors.industry && (
-                 <p className="text-destructive text-xs flex items-center">
+                 <p className="text-red-500 text-xs flex items-center">
                    <AlertCircle className="h-3 w-3 mr-1" />
                    {errors.industry}
                  </p>
@@ -229,45 +229,45 @@ export function DealCreationDialog({ onClose, onDealCreated }: DealCreationDialo
            </div>
 
            <div className="space-y-2">
-             <label className="block text-sm font-medium text-card-foreground">Description</label>
+             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
              <textarea
                value={formData.description}
                onChange={(e) => handleChange('description', e.target.value)}
                  placeholder="Brief description of the deal..."
                  rows={3}
-                 className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none"
+                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                />
              </div>
            </div>
  
-           {/* Financial Information */}
+                      {/* Financial Information */}
            <div className="space-y-4">
-             <h3 className="text-lg font-semibold flex items-center text-card-foreground">
-               <DollarSign className="h-5 w-5 mr-2 text-primary" />
+             <h3 className="text-lg font-semibold flex items-center text-gray-900 dark:text-gray-100">
+               <DollarSign className="h-5 w-5 mr-2 text-blue-600 dark:text-blue-400" />
                Financial Information
              </h3>
              
              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                <div className="md:col-span-2 space-y-2">
-                 <label className="block text-sm font-medium text-card-foreground">
-                   Deal Value <span className="text-destructive">*</span>
+                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                   Deal Value <span className="text-red-500">*</span>
                  </label>
-                                  <Input
+                 <Input
                    type="number"
                    value={formData.dealValue}
                    onChange={(e) => handleChange('dealValue', parseFloat(e.target.value) || 0)}
                    placeholder="1000000"
                    min="0"
                    step="1000"
-                   className={errors.dealValue ? 'border-destructive' : ''}
+                   className={errors.dealValue ? 'border-red-500' : ''}
                  />
                  {formData.dealValue > 0 && (
-                   <p className="text-xs text-muted-foreground">
+                   <p className="text-xs text-gray-500 dark:text-gray-400">
                      {formatCurrency(formData.dealValue)}
                    </p>
                  )}
                  {errors.dealValue && (
-                   <p className="text-destructive text-xs flex items-center">
+                   <p className="text-red-500 text-xs flex items-center">
                      <AlertCircle className="h-3 w-3 mr-1" />
                      {errors.dealValue}
                    </p>
@@ -275,11 +275,11 @@ export function DealCreationDialog({ onClose, onDealCreated }: DealCreationDialo
                </div>
 
                <div className="space-y-2">
-                 <label className="block text-sm font-medium text-card-foreground">Currency</label>
+                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Currency</label>
                  <select
                    value={formData.currency}
                    onChange={(e) => handleChange('currency', e.target.value)}
-                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                  >
                    <option value="USD">USD</option>
                    <option value="EUR">EUR</option>
@@ -291,26 +291,26 @@ export function DealCreationDialog({ onClose, onDealCreated }: DealCreationDialo
              </div>
            </div>
  
-           {/* Timeline & Status */}
+                      {/* Timeline & Status */}
            <div className="space-y-4">
-             <h3 className="text-lg font-semibold flex items-center text-card-foreground">
-               <Calendar className="h-5 w-5 mr-2 text-primary" />
+             <h3 className="text-lg font-semibold flex items-center text-gray-900 dark:text-gray-100">
+               <Calendar className="h-5 w-5 mr-2 text-blue-600 dark:text-blue-400" />
                Timeline & Status
              </h3>
              
              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                <div className="space-y-2">
-                 <label className="block text-sm font-medium text-card-foreground">
-                   Expected Close Date <span className="text-destructive">*</span>
+                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                   Expected Close Date <span className="text-red-500">*</span>
                  </label>
-                                  <Input
+                 <Input
                    type="date"
                    value={formData.expectedCloseDate}
                    onChange={(e) => handleChange('expectedCloseDate', e.target.value)}
-                   className={errors.expectedCloseDate ? 'border-destructive' : ''}
+                   className={errors.expectedCloseDate ? 'border-red-500' : ''}
                  />
                  {errors.expectedCloseDate && (
-                   <p className="text-destructive text-xs flex items-center">
+                   <p className="text-red-500 text-xs flex items-center">
                      <AlertCircle className="h-3 w-3 mr-1" />
                      {errors.expectedCloseDate}
                    </p>
@@ -318,11 +318,11 @@ export function DealCreationDialog({ onClose, onDealCreated }: DealCreationDialo
                </div>
 
                <div className="space-y-2">
-                 <label className="block text-sm font-medium text-card-foreground">Deal Stage</label>
+                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Deal Stage</label>
                  <select
                    value={formData.dealStage}
                    onChange={(e) => handleChange('dealStage', e.target.value)}
-                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                  >
                    <option value="early">Early Stage</option>
                    <option value="due_diligence">Due Diligence</option>
@@ -333,11 +333,11 @@ export function DealCreationDialog({ onClose, onDealCreated }: DealCreationDialo
                </div>
 
                <div className="space-y-2">
-                 <label className="block text-sm font-medium text-card-foreground">Priority</label>
+                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Priority</label>
                  <select
                    value={formData.priority}
                    onChange={(e) => handleChange('priority', e.target.value)}
-                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                  >
                    <option value="high">High Priority</option>
                    <option value="medium">Medium Priority</option>
@@ -349,14 +349,14 @@ export function DealCreationDialog({ onClose, onDealCreated }: DealCreationDialo
  
                       {/* Additional Information */}
            <div className="space-y-4">
-             <h3 className="text-lg font-semibold flex items-center text-card-foreground">
-               <Users className="h-5 w-5 mr-2 text-primary" />
+             <h3 className="text-lg font-semibold flex items-center text-gray-900 dark:text-gray-100">
+               <Users className="h-5 w-5 mr-2 text-blue-600 dark:text-blue-400" />
                Additional Information
              </h3>
              
              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                <div className="space-y-2">
-                 <label className="block text-sm font-medium text-card-foreground">Primary Contact</label>
+                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Primary Contact</label>
                  <Input
                    type="text"
                    value={formData.primaryContact}
@@ -366,7 +366,7 @@ export function DealCreationDialog({ onClose, onDealCreated }: DealCreationDialo
                </div>
 
                <div className="space-y-2">
-                 <label className="block text-sm font-medium text-card-foreground">Location</label>
+                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Location</label>
                  <Input
                    type="text"
                    value={formData.location}
@@ -379,9 +379,9 @@ export function DealCreationDialog({ onClose, onDealCreated }: DealCreationDialo
         </form>
 
         {/* Footer */}
-        <div className="flex items-center justify-between p-6 border-t border-border bg-muted/50">
-          <div className="text-sm text-muted-foreground">
-            <span className="text-destructive">*</span> Required fields
+        <div className="flex items-center justify-between p-6 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+          <div className="text-sm text-gray-500 dark:text-gray-400">
+            <span className="text-red-500">*</span> Required fields
           </div>
           <div className="flex space-x-3">
             <Button type="button" variant="outline" onClick={onClose}>
@@ -394,7 +394,7 @@ export function DealCreationDialog({ onClose, onDealCreated }: DealCreationDialo
             >
               {isSubmitting ? (
                 <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-foreground mr-2"></div>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
                   Creating...
                 </>
               ) : (
