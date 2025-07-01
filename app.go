@@ -41,12 +41,22 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
-	// Initialize config service
+	// Initialize config service with fallback
 	configService, err := NewConfigService()
 	if err != nil {
-		// Log error but continue - will show in UI
+		// Log error but continue with minimal config
 		fmt.Printf("Error initializing config: %v\n", err)
-		return
+		// Create a minimal config service to allow the app to function
+		home, _ := os.UserHomeDir()
+		defaultRoot := filepath.Join(home, "Desktop", "DealDone")
+		configService = &ConfigService{
+			config: &Config{
+				DealDoneRoot:    defaultRoot,
+				FirstRun:        true,
+				DefaultTemplate: "",
+				LastOpenedDeal:  "",
+			},
+		}
 	}
 	a.configService = configService
 
@@ -83,7 +93,7 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize OCR service
 	a.ocrService = NewOCRService("") // No default provider
 
-	// Initialize document processor and router
+	// Always initialize document processor and router - these are essential
 	a.documentProcessor = NewDocumentProcessor(aiService)
 	a.documentRouter = NewDocumentRouter(a.folderManager, a.documentProcessor)
 
