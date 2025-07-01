@@ -67,14 +67,28 @@ export function DealDashboard() {
       const dealsList = await GetDealsList();
       
       // Transform the deals data
-      const transformedDeals: Deal[] = dealsList.map((deal: any) => ({
-        name: deal.name,
-        createdAt: new Date(deal.modTime),
-        documentCount: Math.floor(Math.random() * 50) + 10, // Placeholder
-        analysisComplete: Math.random() > 0.3,
-        riskScore: Math.random() * 100,
-        completeness: Math.random() * 100,
-      }));
+      const transformedDeals: Deal[] = dealsList.map((deal: any) => {
+        // Handle date parsing with fallback
+        let createdAt: Date;
+        if (deal.createdAt) {
+          createdAt = new Date(deal.createdAt);
+          // Check if date is valid
+          if (isNaN(createdAt.getTime())) {
+            createdAt = new Date(); // Fallback to current date
+          }
+        } else {
+          createdAt = new Date(); // Fallback to current date
+        }
+
+        return {
+          name: deal.name,
+          createdAt: createdAt,
+          documentCount: deal.documentCount || 0, // Use actual document count from backend
+          analysisComplete: Math.random() > 0.3,
+          riskScore: Math.random() * 100,
+          completeness: Math.random() * 100,
+        };
+      });
       
       setDeals(transformedDeals);
       
