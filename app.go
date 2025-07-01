@@ -21,6 +21,10 @@ type App struct {
 	ocrService        *OCRService
 	documentRouter    *DocumentRouter
 	aiConfigManager   *AIConfigManager
+	templateParser    *TemplateParser
+	dataMapper        *DataMapper
+	fieldMatcher      *FieldMatcher
+	templatePopulator *TemplatePopulator
 }
 
 // NewApp creates a new App application struct
@@ -78,6 +82,13 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize document processor and router
 	a.documentProcessor = NewDocumentProcessor(aiService)
 	a.documentRouter = NewDocumentRouter(a.folderManager, a.documentProcessor)
+
+	// Initialize template processing services
+	templatesPath := configService.GetTemplatesPath()
+	a.templateParser = NewTemplateParser(templatesPath)
+	a.fieldMatcher = NewFieldMatcher(aiService)
+	a.dataMapper = NewDataMapper(aiService, a.templateParser)
+	a.templatePopulator = NewTemplatePopulator(a.templateParser)
 }
 
 // GetHomeDirectory returns the user's home directory
@@ -585,4 +596,108 @@ func (a *App) ImportTemplate(sourcePath string, metadata *TemplateMetadata) erro
 // SaveTemplateMetadata saves metadata for a template
 func (a *App) SaveTemplateMetadata(templatePath string, metadata *TemplateMetadata) error {
 	return a.templateDiscovery.SaveTemplateMetadata(templatePath, metadata)
+}
+
+// Template Processing Methods
+
+// ParseTemplate parses a template file and returns its structure
+func (a *App) ParseTemplate(templatePath string) (*TemplateData, error) {
+	if a.templateParser == nil {
+		return nil, fmt.Errorf("template parser not initialized")
+	}
+	return a.templateParser.ParseTemplate(templatePath)
+}
+
+// ExtractTemplateFields extracts all fields from a template
+func (a *App) ExtractTemplateFields(templatePath string) ([]DataField, error) {
+	if a.templateParser == nil {
+		return nil, fmt.Errorf("template parser not initialized")
+	}
+
+	templateData, err := a.templateParser.ParseTemplate(templatePath)
+	if err != nil {
+		return nil, err
+	}
+
+	return a.templateParser.ExtractDataFields(templateData), nil
+}
+
+// MapDataToTemplate maps extracted document data to template fields
+func (a *App) MapDataToTemplate(templatePath string, documentPaths []string, dealName string) (*MappedData, error) {
+	if a.dataMapper == nil {
+		return nil, fmt.Errorf("data mapper not initialized")
+	}
+
+	// Parse template
+	templateData, err := a.templateParser.ParseTemplate(templatePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse template: %w", err)
+	}
+
+	// Process documents to get document info
+	documents := make([]DocumentInfo, 0, len(documentPaths))
+	for _, path := range documentPaths {
+		info, err := a.documentProcessor.ProcessDocument(path)
+		if err != nil {
+			continue // Skip failed documents
+		}
+		documents = append(documents, *info)
+	}
+
+	// Map data
+	return a.dataMapper.ExtractAndMapData(templateData, documents, dealName)
+}
+
+// MatchTemplateFields performs intelligent field matching between documents and template
+func (a *App) MatchTemplateFields(sourceFields []string, templatePath string) (*MatchingResult, error) {
+	if a.fieldMatcher == nil {
+		return nil, fmt.Errorf("field matcher not initialized")
+	}
+
+	// Extract template fields
+	templateFields, err := a.ExtractTemplateFields(templatePath)
+	if err != nil {
+		return nil, err
+	}
+
+	return a.fieldMatcher.MatchFields(sourceFields, templateFields)
+}
+
+// PopulateTemplate fills a template with mapped data
+func (a *App) PopulateTemplate(templatePath string, mappedData *MappedData, outputPath string) error {
+	if a.templatePopulator == nil {
+		return fmt.Errorf("template populator not initialized")
+	}
+
+	return a.templatePopulator.PopulateTemplate(templatePath, mappedData, outputPath)
+}
+
+// ValidatePopulatedTemplate checks if formulas are preserved in populated template
+func (a *App) ValidatePopulatedTemplate(populatedPath string, templatePath string) error {
+	if a.templatePopulator == nil {
+		return fmt.Errorf("template populator not initialized")
+	}
+
+	// Get original formulas
+	preservation, err := a.templatePopulator.PreserveFormulas(templatePath)
+	if err != nil {
+		return fmt.Errorf("failed to analyze template formulas: %w", err)
+	}
+
+	return a.templatePopulator.ValidatePopulatedTemplate(populatedPath, preservation)
+}
+
+// GetFieldMappingSuggestions provides suggestions for unmapped fields
+func (a *App) GetFieldMappingSuggestions(unmatchedFields []string, templatePath string) (map[string][]string, error) {
+	if a.fieldMatcher == nil {
+		return nil, fmt.Errorf("field matcher not initialized")
+	}
+
+	// Extract template fields
+	templateFields, err := a.ExtractTemplateFields(templatePath)
+	if err != nil {
+		return nil, err
+	}
+
+	return a.fieldMatcher.GetFieldMappingSuggestions(unmatchedFields, templateFields), nil
 }
