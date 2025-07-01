@@ -64,16 +64,16 @@
   - [x] 6.7 Create document organization view
   - [x] 6.8 Add document action menu (move, delete, reprocess)
 
-## Task 7: User Interface - Analysis Views
-- [ ] 7.0 User Interface - Analysis Views
-  - [ ] 7.1 Create template selection interface
+## Task 7: User Interface - Analysis Views ✓
+- [x] 7.0 User Interface - Analysis Views
+  - [x] 7.1 Create template selection interface
   - [x] 7.2 Build analysis progress indicator
-  - [ ] 7.3 Implement populated template preview
+  - [x] 7.3 Implement populated template preview
   - [x] 7.4 Create financial metrics dashboard
   - [x] 7.5 Build risk assessment visualization
   - [x] 7.6 Implement document insights panel
-  - [ ] 7.7 Create export options interface
-  - [ ] 7.8 Add comparison view for multiple deals
+  - [x] 7.7 Create export options interface
+  - [x] 7.8 Add comparison view for multiple deals
 
 ## Additional UI Components Completed:
 - [x] DocumentUpload.tsx - Document upload with drag-and-drop
