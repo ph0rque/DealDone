@@ -20,7 +20,7 @@ func createFileSystemItem(path string) (*FileSystemItem, error) {
 
 	name := getBaseName(path)
 	isDir := info.IsDir()
-	
+
 	item := &FileSystemItem{
 		ID:          createFileSystemID(path),
 		Name:        name,
@@ -55,7 +55,8 @@ func (a *App) ListDirectory(request DirectoryListRequest) ([]FileSystemItem, err
 		return nil, fmt.Errorf(formatError("read directory", request.Path, err))
 	}
 
-	var items []FileSystemItem
+	// Initialize as empty slice to ensure JSON serialization returns [] not null
+	items := make([]FileSystemItem, 0)
 
 	for _, entry := range entries {
 		// Skip hidden files if not requested
@@ -396,7 +397,8 @@ func (a *App) SearchFiles(request SearchRequest) (SearchResult, error) {
 		}, nil
 	}
 
-	var results []FileSystemItem
+	// Initialize as empty slice to ensure JSON serialization returns [] not null
+	results := make([]FileSystemItem, 0)
 
 	err := filepath.Walk(request.Path, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -455,7 +457,7 @@ func (a *App) OpenFile(request OpenFileRequest) FileOperationResult {
 	}
 
 	var cmd *exec.Cmd
-	
+
 	switch runtime.GOOS {
 	case "darwin": // macOS
 		cmd = exec.Command("open", request.Path)
@@ -481,4 +483,4 @@ func (a *App) OpenFile(request OpenFileRequest) FileOperationResult {
 		Success: true,
 		Message: fmt.Sprintf("Successfully opened: %s", getBaseName(request.Path)),
 	}
-} 
+}

@@ -36,6 +36,12 @@ export class FileManagerAPI {
       
       const items = await ListDirectory(request)
       
+      // Ensure items is an array - handle null/undefined case
+      if (!items || !Array.isArray(items)) {
+        console.warn('ListDirectory returned null/undefined, returning empty array')
+        return []
+      }
+      
       // Convert backend items to frontend format with Date objects
       return items.map(item => ({
         ...item,
@@ -213,8 +219,11 @@ export class FileManagerAPI {
       
       const result = await SearchFiles(request)
       
+      // Ensure result.items is an array - handle null/undefined case
+      const itemsArray = result.items || []
+      
       // Convert backend items to frontend format
-      const items = result.items.map(item => ({
+      const items = itemsArray.map(item => ({
         ...item,
         modifiedAt: new Date(item.modifiedAt),
         createdAt: new Date(item.createdAt),
