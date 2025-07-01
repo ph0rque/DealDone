@@ -1,17 +1,53 @@
-# Active Context: DealDone
+# Active Context
 
 ## Current Focus
-Creating the core automated document analysis and management feature PRD.
+Just completed Task 1.0 (Folder Structure and Initial Setup) for the automated document analysis feature (PRD 1.0). The application now has:
+- A configuration system that handles OS-specific paths
+- Folder structure creation for DealDone workspace
+- First-run setup flow that guides users
+- Template validation and management
+- Permission checking for security
+- Default templates for common M&A use cases
 
-## Recent Activities
-1. **PRD Creation**: Generated comprehensive PRD for automated document analysis feature
-   - File: `/tasks/prd-automated-document-analysis.md`
-   - Status: Complete
-   - Next: Generate task breakdown for implementation
+Ready to begin Task 2.0: Document Processing Pipeline
 
-2. **Memory Bank Initialization**: Setting up project memory structure
-   - Creating core documentation files
-   - Establishing project context and patterns
+## Recent Changes
+### Task 1.0 Implementation (Completed)
+- Created `config.go` for managing application settings
+- Built `foldermanager.go` for folder structure operations  
+- Implemented `permissions.go` for comprehensive permission checking
+- Added `templatemanager.go` for template discovery and validation
+- Created `defaulttemplates.go` to generate starter templates
+- Built `FirstRunSetup.tsx` React component for initial setup
+- Added full test coverage for all new components
+
+## Next Steps
+### Task 2.0: Document Processing Pipeline
+Need to implement:
+1. Document type detection using AI/ML
+2. OCR integration for scanned documents
+3. Classification logic (legal/financial/general)
+4. Document routing to appropriate folders
+5. Drag-and-drop file handling
+6. Batch processing support
+7. Metadata extraction
+8. Error handling for unsupported files
+
+## Key Decisions
+- Configuration stored in OS-appropriate locations (Application Support on macOS, AppData on Windows)
+- Default DealDone folder on Desktop, but user configurable
+- Templates folder supports .xlsx, .xls, .docx, .pptx formats
+- Deal folders have standard structure: legal/, financial/, general/, analysis/
+- First-run setup is mandatory to ensure proper initialization
+- Default templates provide immediate value (Financial Model, Due Diligence Checklist, Deal Summary)
+
+## Technical Notes
+- Using Wails for desktop app framework
+- React/TypeScript for frontend
+- Go for backend services
+- CSV generation for Excel-compatible templates
+- Comprehensive permission checking prevents issues with system directories
+- All components have full test coverage
 
 ## Active Decisions
 
@@ -27,13 +63,6 @@ Creating the core automated document analysis and management feature PRD.
 3. AI integration for data extraction
 4. Confidence scoring visualization
 5. Learning system for corrections
-
-## Next Steps
-1. Generate detailed task list from PRD
-2. Review existing codebase structure
-3. Identify integration points for new features
-4. Plan n8n workflow architecture
-5. Design API contracts between desktop app and AI services
 
 ## Open Questions
 - How to handle OCR for scanned documents?
