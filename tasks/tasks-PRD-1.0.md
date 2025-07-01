@@ -33,45 +33,45 @@
 
 ## Task 4: Template Management and Data Population
 - [ ] 4.0 Template Management and Data Population
-  - [ ] 4.1 Build template discovery and listing system
-  - [ ] 4.2 Create template selection interface backend
+  - [x] 4.1 Build template discovery and listing system
+  - [x] 4.2 Create template selection interface backend
   - [ ] 4.3 Implement Excel/CSV template parser
   - [ ] 4.4 Build data extraction and mapping engine
   - [ ] 4.5 Create field matching algorithm
   - [ ] 4.6 Implement formula preservation in Excel
-  - [ ] 4.7 Add template versioning support
-  - [ ] 4.8 Build template validation system
+  - [x] 4.7 Add template versioning support
+  - [x] 4.8 Build template validation system
 
 ## Task 5: Analysis Engine
 - [ ] 5.0 Analysis Engine
-  - [ ] 5.1 Create financial metrics extraction module
-  - [ ] 5.2 Build legal document risk assessment
+  - [x] 5.1 Create financial metrics extraction module
+  - [x] 5.2 Build legal document risk assessment
   - [ ] 5.3 Implement deal valuation calculator
   - [ ] 5.4 Create competitive analysis module
   - [ ] 5.5 Build trend analysis over multiple documents
   - [ ] 5.6 Implement anomaly detection
-  - [ ] 5.7 Create summary report generator
+  - [x] 5.7 Create summary report generator
   - [ ] 5.8 Add export functionality for analysis results
 
 ## Task 6: User Interface - Document Management
 - [ ] 6.0 User Interface - Document Management
-  - [ ] 6.1 Create deal selection/creation interface
+  - [x] 6.1 Create deal selection/creation interface
   - [x] 6.2 Build drag-and-drop upload interface
   - [x] 6.3 Implement document preview system
-  - [ ] 6.4 Create document status dashboard
+  - [x] 6.4 Create document status dashboard
   - [x] 6.5 Build batch upload progress indicator
   - [ ] 6.6 Implement document search and filter
-  - [ ] 6.7 Create document organization view
+  - [x] 6.7 Create document organization view
   - [ ] 6.8 Add document action menu (move, delete, reprocess)
 
 ## Task 7: User Interface - Analysis Views
 - [ ] 7.0 User Interface - Analysis Views
   - [ ] 7.1 Create template selection interface
-  - [ ] 7.2 Build analysis progress indicator
+  - [x] 7.2 Build analysis progress indicator
   - [ ] 7.3 Implement populated template preview
-  - [ ] 7.4 Create financial metrics dashboard
-  - [ ] 7.5 Build risk assessment visualization
-  - [ ] 7.6 Implement document insights panel
+  - [x] 7.4 Create financial metrics dashboard
+  - [x] 7.5 Build risk assessment visualization
+  - [x] 7.6 Implement document insights panel
   - [ ] 7.7 Create export options interface
   - [ ] 7.8 Add comparison view for multiple deals
 
