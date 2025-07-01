@@ -61,73 +61,76 @@ export function TreeNode({
 
   return (
     <div className="relative">
-
-      <ContextMenu
-        item={item}
-        onRefresh={onRefresh}
-        clipboardItems={clipboardItems}
-        onCopy={onCopy}
-        onCut={onCut}
+      <div
+        className={cn(
+          "flex items-center gap-1 px-2 py-1 cursor-pointer text-sm relative",
+          "hover:bg-accent hover:text-accent-foreground",
+          "transition-colors duration-150",
+          isSelected && "bg-accent text-accent-foreground",
+          isHovered && !isSelected && "bg-muted",
+          level > 0 && "border-l-2 border-transparent"
+        )}
+        style={{ 
+          paddingLeft: `${level * 24 + 8}px`,
+          marginLeft: level > 0 ? '2px' : 0 
+        }}
+        onClick={handleClick}
+        onContextMenu={handleContextMenu}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
       >
-        <div
-          className={cn(
-            "flex items-center gap-1 px-2 py-1 cursor-pointer text-sm relative",
-            "hover:bg-accent hover:text-accent-foreground",
-            "transition-colors duration-150",
-            isSelected && "bg-accent text-accent-foreground",
-            isHovered && !isSelected && "bg-muted",
-            level > 0 && "border-l-2 border-transparent"
-          )}
-          style={{ 
-            paddingLeft: `${level * 24 + 8}px`,
-            marginLeft: level > 0 ? '2px' : 0 
-          }}
-          onClick={handleClick}
-          onContextMenu={handleContextMenu}
-          onMouseEnter={() => setIsHovered(true)}
-          onMouseLeave={() => setIsHovered(false)}
-        >
-          {/* Expand/collapse button for directories */}
-          {item.isDirectory ? (
-            <button
-              className="p-0.5 hover:bg-muted rounded-sm flex-shrink-0"
-              onClick={handleExpandClick}
-            >
-              {item.isExpanded ? (
-                <ChevronDown className="w-3 h-3 transition-transform duration-200" />
-              ) : (
-                <ChevronRight className="w-3 h-3 transition-transform duration-200" />
-              )}
-            </button>
-          ) : (
-            <div className="w-4 h-4" /> // Placeholder for alignment
-          )}
-
-          {/* File icon */}
-          <FileIcon
-            filename={item.name}
-            isDirectory={item.isDirectory}
-            isExpanded={item.isExpanded}
-            isLoading={item.isLoading}
-            className="w-4 h-4 flex-shrink-0"
-          />
-
-          {/* File name */}
-          <span 
-            className="truncate flex-1 select-none"
-            title={item.name}
+        {/* Expand/collapse button for directories - OUTSIDE context menu */}
+        {item.isDirectory ? (
+          <button
+            className="p-0.5 hover:bg-muted rounded-sm flex-shrink-0 z-10"
+            onClick={handleExpandClick}
+            onContextMenu={(e) => e.stopPropagation()}
           >
-            {item.name}
-          </span>
+            {item.isExpanded ? (
+              <ChevronDown className="w-3 h-3 transition-transform duration-200" />
+            ) : (
+              <ChevronRight className="w-3 h-3 transition-transform duration-200" />
+            )}
+          </button>
+        ) : (
+          <div className="w-4 h-4" /> // Placeholder for alignment
+        )}
 
-          {/* Children count indicator for collapsed folders */}
-          {item.isDirectory && !item.isExpanded && item.children && item.children.length > 0 && (
-            <span className="text-xs text-muted-foreground ml-2">
-              {item.children.length}
+        {/* Context menu only wraps the main content area */}
+        <ContextMenu
+          item={item}
+          onRefresh={onRefresh}
+          clipboardItems={clipboardItems}
+          onCopy={onCopy}
+          onCut={onCut}
+        >
+          <div className="flex items-center gap-1 flex-1">
+            {/* File icon */}
+            <FileIcon
+              filename={item.name}
+              isDirectory={item.isDirectory}
+              isExpanded={item.isExpanded}
+              isLoading={item.isLoading}
+              className="w-4 h-4 flex-shrink-0"
+            />
+
+            {/* File name */}
+            <span 
+              className="truncate flex-1 select-none"
+              title={item.name}
+            >
+              {item.name}
             </span>
-          )}
-        </div>
-      </ContextMenu>
+
+            {/* Children count indicator for collapsed folders */}
+            {item.isDirectory && !item.isExpanded && item.children && item.children.length > 0 && (
+              <span className="text-xs text-muted-foreground ml-2">
+                {item.children.length}
+              </span>
+            )}
+          </div>
+        </ContextMenu>
+      </div>
 
       {/* Child items */}
       {item.isDirectory && item.isExpanded && item.children && item.children.length > 0 && (
