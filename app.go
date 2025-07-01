@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // App struct
@@ -15,6 +16,8 @@ type App struct {
 	templateManager   *TemplateManager
 	documentRouter    *DocumentRouter
 	documentProcessor *DocumentProcessor
+	aiConfigManager   *AIConfigManager
+	aiService         *AIService
 }
 
 // NewApp creates a new App application struct
@@ -42,8 +45,25 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize template manager
 	a.templateManager = NewTemplateManager(configService)
 
+	// Initialize AI configuration manager
+	aiConfigManager, err := NewAIConfigManager(configService)
+	if err != nil {
+		fmt.Printf("Error initializing AI config: %v\n", err)
+		// Create with default config
+		aiConfigManager = &AIConfigManager{
+			config: &AIConfig{
+				CacheTTL:  time.Minute * 30,
+				RateLimit: 60,
+			},
+		}
+	}
+	a.aiConfigManager = aiConfigManager
+
+	// Initialize AI service with config
+	aiService := NewAIService(aiConfigManager.GetConfig())
+	a.aiService = aiService
+
 	// Initialize document processor and router
-	aiService := NewAIService("", "", "") // No AI service for now
 	a.documentProcessor = NewDocumentProcessor(aiService)
 	a.documentRouter = NewDocumentRouter(a.folderManager, a.documentProcessor)
 }
@@ -286,4 +306,168 @@ func (a *App) GetConfiguredDealsPath() string {
 		return ""
 	}
 	return a.configService.GetDealsPath()
+}
+
+// AI Configuration Methods
+
+// GetAIProviderStatus returns the status of all AI providers
+func (a *App) GetAIProviderStatus() map[string]interface{} {
+	if a.aiConfigManager == nil {
+		return map[string]interface{}{
+			"error": "AI configuration not initialized",
+		}
+	}
+
+	status := a.aiConfigManager.GetProviderStatus()
+	result := make(map[string]interface{})
+
+	for provider, providerStatus := range status {
+		result[string(provider)] = map[string]interface{}{
+			"configured": providerStatus.Configured,
+			"model":      providerStatus.Model,
+			"enabled":    providerStatus.Enabled,
+		}
+	}
+
+	return result
+}
+
+// GetAIConfiguration returns the current AI configuration (without sensitive data)
+func (a *App) GetAIConfiguration() (map[string]interface{}, error) {
+	if a.aiConfigManager == nil {
+		return nil, fmt.Errorf("AI configuration not initialized")
+	}
+
+	return a.aiConfigManager.Export()
+}
+
+// UpdateAIConfiguration updates AI configuration settings
+func (a *App) UpdateAIConfiguration(updates map[string]interface{}) error {
+	if a.aiConfigManager == nil {
+		return fmt.Errorf("AI configuration not initialized")
+	}
+
+	if err := a.aiConfigManager.UpdateConfig(updates); err != nil {
+		return err
+	}
+
+	// Reinitialize AI service with new config
+	a.aiService = NewAIService(a.aiConfigManager.GetConfig())
+	a.documentProcessor = NewDocumentProcessor(a.aiService)
+	a.documentRouter = NewDocumentRouter(a.folderManager, a.documentProcessor)
+
+	return nil
+}
+
+// SetAIProvider sets the preferred AI provider
+func (a *App) SetAIProvider(provider string) error {
+	if a.aiConfigManager == nil {
+		return fmt.Errorf("AI configuration not initialized")
+	}
+
+	return a.aiConfigManager.SetPreferredProvider(AIProvider(provider))
+}
+
+// SetAIAPIKey sets an API key for a provider
+func (a *App) SetAIAPIKey(provider string, apiKey string) error {
+	if a.aiConfigManager == nil {
+		return fmt.Errorf("AI configuration not initialized")
+	}
+
+	if err := a.aiConfigManager.SetAPIKey(AIProvider(provider), apiKey); err != nil {
+		return err
+	}
+
+	// Reinitialize AI service with new config
+	a.aiService = NewAIService(a.aiConfigManager.GetConfig())
+	a.documentProcessor = NewDocumentProcessor(a.aiService)
+	a.documentRouter = NewDocumentRouter(a.folderManager, a.documentProcessor)
+
+	return nil
+}
+
+// AI Analysis Methods
+
+// AnalyzeDocumentRisks analyzes a document for potential risks
+func (a *App) AnalyzeDocumentRisks(filePath string) (*RiskAnalysis, error) {
+	if a.aiService == nil || !a.aiService.IsAvailable() {
+		return nil, fmt.Errorf("AI service not available")
+	}
+
+	// Extract text from document
+	text, err := a.ExtractTextFromDocument(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract text: %w", err)
+	}
+
+	// Detect document type
+	info, err := a.documentProcessor.ProcessDocument(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
+	defer cancel()
+
+	return a.aiService.AnalyzeRisks(ctx, text, string(info.Type))
+}
+
+// GenerateDocumentInsights generates insights about a document
+func (a *App) GenerateDocumentInsights(filePath string) (*DocumentInsights, error) {
+	if a.aiService == nil || !a.aiService.IsAvailable() {
+		return nil, fmt.Errorf("AI service not available")
+	}
+
+	// Extract text from document
+	text, err := a.ExtractTextFromDocument(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract text: %w", err)
+	}
+
+	// Detect document type
+	info, err := a.documentProcessor.ProcessDocument(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
+	defer cancel()
+
+	return a.aiService.GenerateInsights(ctx, text, string(info.Type))
+}
+
+// ExtractDocumentEntities extracts named entities from a document
+func (a *App) ExtractDocumentEntities(filePath string) (*EntityExtraction, error) {
+	if a.aiService == nil || !a.aiService.IsAvailable() {
+		return nil, fmt.Errorf("AI service not available")
+	}
+
+	// Extract text from document
+	text, err := a.ExtractTextFromDocument(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract text: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
+	defer cancel()
+
+	return a.aiService.ExtractEntities(ctx, text)
+}
+
+// ExtractFinancialData extracts financial data from a document
+func (a *App) ExtractFinancialData(filePath string) (*FinancialAnalysis, error) {
+	if a.aiService == nil || !a.aiService.IsAvailable() {
+		return nil, fmt.Errorf("AI service not available")
+	}
+
+	// Extract text from document
+	text, err := a.ExtractTextFromDocument(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract text: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
+	defer cancel()
+
+	return a.aiService.ExtractFinancialData(ctx, text)
 }

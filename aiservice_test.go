@@ -1,54 +1,71 @@
 package main
 
 import (
+	"context"
 	"testing"
+	"time"
 )
 
 func TestAIService(t *testing.T) {
 	t.Run("NewAIService creates service with config", func(t *testing.T) {
-		apiKey := "test-key"
-		endpoint := "https://api.example.com"
-		model := "gpt-4"
-
-		as := NewAIService(apiKey, endpoint, model)
-
-		if as.apiKey != apiKey {
-			t.Errorf("Expected apiKey %s, got %s", apiKey, as.apiKey)
+		config := &AIConfig{
+			OpenAIKey:   "test-key",
+			OpenAIModel: "gpt-4",
+			ClaudeKey:   "",
+			ClaudeModel: "",
+			CacheTTL:    time.Minute * 5,
+			RateLimit:   60,
+			MaxRetries:  3,
+			RetryDelay:  time.Second,
 		}
 
-		if as.endpoint != endpoint {
-			t.Errorf("Expected endpoint %s, got %s", endpoint, as.endpoint)
+		as := NewAIService(config)
+
+		if as == nil {
+			t.Fatal("Expected AI service to be created")
 		}
 
-		if as.model != model {
-			t.Errorf("Expected model %s, got %s", model, as.model)
+		// Should have OpenAI and Default providers
+		providers := as.GetAvailableProviders()
+		if len(providers) < 1 {
+			t.Error("Expected at least default provider to be available")
 		}
 	})
 
 	t.Run("IsAvailable checks configuration", func(t *testing.T) {
-		// Service with API key should be available
-		as := NewAIService("test-key", "", "")
+		// Service with no API keys should still have default provider
+		config := &AIConfig{
+			CacheTTL:  time.Minute,
+			RateLimit: 60,
+		}
+		as := NewAIService(config)
+
 		if !as.IsAvailable() {
+			t.Error("Expected service to be available with default provider")
+		}
+
+		// Service with API key should be available
+		config2 := &AIConfig{
+			OpenAIKey: "test-key",
+			CacheTTL:  time.Minute,
+			RateLimit: 60,
+		}
+		as2 := NewAIService(config2)
+
+		if !as2.IsAvailable() {
 			t.Error("Expected service with API key to be available")
-		}
-
-		// Service without API key should not be available
-		as2 := NewAIService("", "", "")
-		if as2.IsAvailable() {
-			t.Error("Expected service without API key to be unavailable")
-		}
-
-		// Nil service should not be available
-		var as3 *AIService
-		if as3.IsAvailable() {
-			t.Error("Expected nil service to be unavailable")
 		}
 	})
 
-	t.Run("ClassifyDocument returns placeholder result", func(t *testing.T) {
-		as := NewAIService("test-key", "", "")
+	t.Run("ClassifyDocument uses fallback when needed", func(t *testing.T) {
+		config := &AIConfig{
+			CacheTTL:  time.Minute,
+			RateLimit: 60,
+		}
+		as := NewAIService(config)
 
-		result, err := as.ClassifyDocument("test content", nil)
+		ctx := context.Background()
+		result, err := as.ClassifyDocument(ctx, "test content", nil)
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}
@@ -66,25 +83,93 @@ func TestAIService(t *testing.T) {
 		}
 	})
 
-	t.Run("ExtractTextFromImage returns not implemented", func(t *testing.T) {
-		as := NewAIService("test-key", "", "")
+	t.Run("Caching works correctly", func(t *testing.T) {
+		config := &AIConfig{
+			CacheTTL:  time.Second * 2,
+			RateLimit: 60,
+		}
+		as := NewAIService(config)
 
-		_, err := as.ExtractTextFromImage("test.jpg")
-		if err == nil {
-			t.Error("Expected not implemented error")
+		ctx := context.Background()
+		content := "test financial content with revenue and profit"
+		metadata := map[string]interface{}{"test": true}
+
+		// First call
+		result1, err := as.ClassifyDocument(ctx, content, metadata)
+		if err != nil {
+			t.Fatalf("First call failed: %v", err)
+		}
+
+		// Second call should hit cache
+		result2, err := as.ClassifyDocument(ctx, content, metadata)
+		if err != nil {
+			t.Fatalf("Second call failed: %v", err)
+		}
+
+		// Results should be identical
+		if result1.DocumentType != result2.DocumentType {
+			t.Error("Cached result differs from original")
 		}
 	})
 
-	t.Run("AnalyzeFinancialData returns placeholder result", func(t *testing.T) {
-		as := NewAIService("test-key", "", "")
+	t.Run("Rate limiting works", func(t *testing.T) {
+		config := &AIConfig{
+			CacheTTL:  time.Minute,
+			RateLimit: 2, // Very low rate
+		}
+		as := NewAIService(config)
 
-		result, err := as.AnalyzeFinancialData("revenue: $1M")
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
+		ctx := context.Background()
+
+		// First two should succeed
+		_, err1 := as.ClassifyDocument(ctx, "content1", nil)
+		if err1 != nil {
+			t.Errorf("First request failed: %v", err1)
 		}
 
-		if result.DataPoints == nil {
-			t.Error("Expected DataPoints map to be initialized")
+		_, err2 := as.ClassifyDocument(ctx, "content2", nil)
+		if err2 != nil {
+			t.Errorf("Second request failed: %v", err2)
+		}
+
+		// Third should wait or timeout
+		shortCtx, cancel := context.WithTimeout(ctx, time.Millisecond*100)
+		defer cancel()
+
+		_, err3 := as.ClassifyDocument(shortCtx, "content3", nil)
+		if err3 == nil {
+			t.Error("Expected rate limit error for third request")
+		}
+	})
+
+	t.Run("SetPrimaryProvider changes provider order", func(t *testing.T) {
+		config := &AIConfig{
+			OpenAIKey: "test-key",
+			ClaudeKey: "test-key",
+			CacheTTL:  time.Minute,
+			RateLimit: 60,
+		}
+		as := NewAIService(config)
+
+		// Default should be OpenAI (first configured)
+		if as.primaryProvider != ProviderOpenAI {
+			t.Errorf("Expected primary provider to be OpenAI, got %s", as.primaryProvider)
+		}
+
+		// Change to Claude
+		err := as.SetPrimaryProvider(ProviderClaude)
+		if err != nil {
+			t.Errorf("Failed to set primary provider: %v", err)
+		}
+
+		if as.primaryProvider != ProviderClaude {
+			t.Errorf("Expected primary provider to be Claude, got %s", as.primaryProvider)
+		}
+
+		// Try to set non-existent provider
+		err = as.SetPrimaryProvider("nonexistent")
+		if err == nil {
+			t.Error("Expected error when setting non-existent provider")
 		}
 	})
 }

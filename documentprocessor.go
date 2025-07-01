@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"mime"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // DocumentType represents the type of document
@@ -139,19 +141,26 @@ func (dp *DocumentProcessor) detectDocumentTypeWithAI(filePath string, docInfo *
 	// Extract text from the document
 	text, err := dp.ExtractTextWithOCR(filePath)
 	if err != nil {
-		// If text extraction fails, fall back to rule-based
-		return nil, err
+		// If text extraction fails, try without OCR
+		text, err = dp.ExtractText(filePath)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Use AI to classify based on extracted text
-	if text != "" && dp.aiService != nil {
+	if text != "" && dp.aiService != nil && dp.aiService.IsAvailable() {
 		metadata := map[string]interface{}{
 			"filename":  docInfo.Name,
 			"extension": docInfo.Extension,
 			"size":      docInfo.Size,
 		}
 
-		result, err := dp.aiService.ClassifyDocument(text, metadata)
+		// Create a context with timeout
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+		defer cancel()
+
+		result, err := dp.aiService.ClassifyDocument(ctx, text, metadata)
 		if err != nil {
 			return nil, err
 		}
@@ -172,10 +181,10 @@ func (dp *DocumentProcessor) detectDocumentTypeWithAI(filePath string, docInfo *
 		}, nil
 	}
 
-	// Fallback
+	// Fallback to rule-based
 	return &AIDetectionResult{
 		Type:       dp.detectDocumentTypeByRules(docInfo.Name, docInfo.Extension),
-		Confidence: 0.85,
+		Confidence: 0.7,
 		Keywords:   []string{},
 	}, nil
 }
