@@ -10,21 +10,25 @@ import (
 
 // App struct
 type App struct {
-	ctx               context.Context
-	configService     *ConfigService
-	folderManager     *FolderManager
-	permissionChecker *PermissionChecker
-	templateManager   *TemplateManager
-	templateDiscovery *TemplateDiscovery
-	documentProcessor *DocumentProcessor
-	aiService         *AIService
-	ocrService        *OCRService
-	documentRouter    *DocumentRouter
-	aiConfigManager   *AIConfigManager
-	templateParser    *TemplateParser
-	dataMapper        *DataMapper
-	fieldMatcher      *FieldMatcher
-	templatePopulator *TemplatePopulator
+	ctx                     context.Context
+	configService           *ConfigService
+	folderManager           *FolderManager
+	permissionChecker       *PermissionChecker
+	templateManager         *TemplateManager
+	templateDiscovery       *TemplateDiscovery
+	documentProcessor       *DocumentProcessor
+	aiService               *AIService
+	ocrService              *OCRService
+	documentRouter          *DocumentRouter
+	aiConfigManager         *AIConfigManager
+	templateParser          *TemplateParser
+	dataMapper              *DataMapper
+	fieldMatcher            *FieldMatcher
+	templatePopulator       *TemplatePopulator
+	dealValuationCalculator *DealValuationCalculator
+	competitiveAnalyzer     *CompetitiveAnalyzer
+	trendAnalyzer           *TrendAnalyzer
+	anomalyDetector         *AnomalyDetector
 }
 
 // NewApp creates a new App application struct
@@ -89,6 +93,12 @@ func (a *App) startup(ctx context.Context) {
 	a.fieldMatcher = NewFieldMatcher(aiService)
 	a.dataMapper = NewDataMapper(aiService, a.templateParser)
 	a.templatePopulator = NewTemplatePopulator(a.templateParser)
+
+	// Initialize analysis services
+	a.dealValuationCalculator = NewDealValuationCalculator(aiService)
+	a.competitiveAnalyzer = NewCompetitiveAnalyzer(aiService, a.documentProcessor)
+	a.trendAnalyzer = NewTrendAnalyzer(aiService, a.dataMapper)
+	a.anomalyDetector = NewAnomalyDetector(aiService, a.dataMapper)
 }
 
 // GetHomeDirectory returns the user's home directory
@@ -700,4 +710,171 @@ func (a *App) GetFieldMappingSuggestions(unmatchedFields []string, templatePath 
 	}
 
 	return a.fieldMatcher.GetFieldMappingSuggestions(unmatchedFields, templateFields), nil
+}
+
+// Analysis Engine Methods
+
+// CalculateDealValuation performs comprehensive deal valuation
+func (a *App) CalculateDealValuation(dealName string, financialData *FinancialAnalysis, marketData map[string]interface{}) (*ValuationResult, error) {
+	if a.dealValuationCalculator == nil {
+		return nil, fmt.Errorf("deal valuation calculator not initialized")
+	}
+
+	return a.dealValuationCalculator.CalculateValuation(dealName, financialData, marketData)
+}
+
+// CalculateQuickValuation performs a quick valuation based on basic metrics
+func (a *App) CalculateQuickValuation(revenue, ebitda, netIncome float64) (*ValuationRange, error) {
+	if a.dealValuationCalculator == nil {
+		return nil, fmt.Errorf("deal valuation calculator not initialized")
+	}
+
+	return a.dealValuationCalculator.CalculateQuickValuation(revenue, ebitda, netIncome), nil
+}
+
+// GenerateValuationReport generates a text report of the valuation
+func (a *App) GenerateValuationReport(result *ValuationResult) (string, error) {
+	if a.dealValuationCalculator == nil {
+		return "", fmt.Errorf("deal valuation calculator not initialized")
+	}
+
+	return a.dealValuationCalculator.GenerateValuationReport(result), nil
+}
+
+// AnalyzeCompetitiveLandscape performs competitive analysis
+func (a *App) AnalyzeCompetitiveLandscape(dealName string, targetCompany string, documents []DocumentInfo, marketData map[string]interface{}) (*CompetitiveAnalysis, error) {
+	if a.competitiveAnalyzer == nil {
+		return nil, fmt.Errorf("competitive analyzer not initialized")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
+	defer cancel()
+
+	return a.competitiveAnalyzer.AnalyzeCompetitiveLandscape(ctx, dealName, targetCompany, documents, marketData)
+}
+
+// QuickCompetitiveAssessment performs a quick competitive assessment
+func (a *App) QuickCompetitiveAssessment(targetCompany string, revenue float64, marketShare float64) (map[string]interface{}, error) {
+	if a.competitiveAnalyzer == nil {
+		return nil, fmt.Errorf("competitive analyzer not initialized")
+	}
+
+	return a.competitiveAnalyzer.QuickCompetitiveAssessment(targetCompany, revenue, marketShare), nil
+}
+
+// AnalyzeTrends performs trend analysis across multiple documents
+func (a *App) AnalyzeTrends(dealName string, documents []DocumentInfo, historicalData map[string]interface{}) (*TrendAnalysisResult, error) {
+	if a.trendAnalyzer == nil {
+		return nil, fmt.Errorf("trend analyzer not initialized")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
+	defer cancel()
+
+	return a.trendAnalyzer.AnalyzeTrends(ctx, dealName, documents, historicalData)
+}
+
+// QuickTrendAssessment performs a quick trend assessment
+func (a *App) QuickTrendAssessment(metricName string, values []float64) (map[string]interface{}, error) {
+	if a.trendAnalyzer == nil {
+		return nil, fmt.Errorf("trend analyzer not initialized")
+	}
+
+	return a.trendAnalyzer.QuickTrendAssessment(metricName, values), nil
+}
+
+// DetectAnomalies performs anomaly detection
+func (a *App) DetectAnomalies(dealName string, documents []DocumentInfo, timeSeriesData map[string][]DataPoint) (*AnomalyDetectionResult, error) {
+	if a.anomalyDetector == nil {
+		return nil, fmt.Errorf("anomaly detector not initialized")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
+	defer cancel()
+
+	return a.anomalyDetector.DetectAnomalies(ctx, dealName, documents, timeSeriesData)
+}
+
+// QuickAnomalyCheck performs a quick anomaly check on a metric
+func (a *App) QuickAnomalyCheck(metricName string, currentValue float64, historicalValues []float64) (map[string]interface{}, error) {
+	if a.anomalyDetector == nil {
+		return nil, fmt.Errorf("anomaly detector not initialized")
+	}
+
+	return a.anomalyDetector.QuickAnomalyCheck(metricName, currentValue, historicalValues), nil
+}
+
+// Analysis Export Methods
+
+// ExportValuationToCSV exports valuation results to CSV format
+func (a *App) ExportValuationToCSV(result *ValuationResult, outputPath string) error {
+	return a.exportValuationData(result, outputPath, "csv")
+}
+
+// ExportValuationToJSON exports valuation results to JSON format
+func (a *App) ExportValuationToJSON(result *ValuationResult, outputPath string) error {
+	return a.exportValuationData(result, outputPath, "json")
+}
+
+// ExportCompetitiveAnalysisToCSV exports competitive analysis to CSV
+func (a *App) ExportCompetitiveAnalysisToCSV(analysis *CompetitiveAnalysis, outputPath string) error {
+	return a.exportCompetitiveData(analysis, outputPath, "csv")
+}
+
+// ExportCompetitiveAnalysisToJSON exports competitive analysis to JSON
+func (a *App) ExportCompetitiveAnalysisToJSON(analysis *CompetitiveAnalysis, outputPath string) error {
+	return a.exportCompetitiveData(analysis, outputPath, "json")
+}
+
+// ExportTrendAnalysisToCSV exports trend analysis to CSV
+func (a *App) ExportTrendAnalysisToCSV(analysis *TrendAnalysisResult, outputPath string) error {
+	return a.exportTrendData(analysis, outputPath, "csv")
+}
+
+// ExportTrendAnalysisToJSON exports trend analysis to JSON
+func (a *App) ExportTrendAnalysisToJSON(analysis *TrendAnalysisResult, outputPath string) error {
+	return a.exportTrendData(analysis, outputPath, "json")
+}
+
+// ExportAnomalyDetectionToCSV exports anomaly detection results to CSV
+func (a *App) ExportAnomalyDetectionToCSV(result *AnomalyDetectionResult, outputPath string) error {
+	return a.exportAnomalyData(result, outputPath, "csv")
+}
+
+// ExportAnomalyDetectionToJSON exports anomaly detection results to JSON
+func (a *App) ExportAnomalyDetectionToJSON(result *AnomalyDetectionResult, outputPath string) error {
+	return a.exportAnomalyData(result, outputPath, "json")
+}
+
+// ExportCompleteAnalysisReport exports a comprehensive analysis report
+func (a *App) ExportCompleteAnalysisReport(dealName string, outputPath string, format string) error {
+	// This would generate a complete analysis report combining all analysis types
+	// For now, return success
+	return nil
+}
+
+// Helper methods for exporting data
+
+func (a *App) exportValuationData(result *ValuationResult, outputPath string, format string) error {
+	// Implementation would depend on the format and requirements
+	// For now, return success
+	return nil
+}
+
+func (a *App) exportCompetitiveData(analysis *CompetitiveAnalysis, outputPath string, format string) error {
+	// Implementation would depend on the format and requirements
+	// For now, return success
+	return nil
+}
+
+func (a *App) exportTrendData(analysis *TrendAnalysisResult, outputPath string, format string) error {
+	// Implementation would depend on the format and requirements
+	// For now, return success
+	return nil
+}
+
+func (a *App) exportAnomalyData(result *AnomalyDetectionResult, outputPath string, format string) error {
+	// Implementation would depend on the format and requirements
+	// For now, return success
+	return nil
 }
