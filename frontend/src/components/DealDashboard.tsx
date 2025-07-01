@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { GetDealsList, ProcessFolder } from '../../wailsjs/go/main/App';
 import { DocumentUpload } from './DocumentUpload';
+import { DocumentSearch, DocumentItem } from './DocumentSearch';
+import { DocumentViewer } from './DocumentViewer';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { useToast } from '../hooks/use-toast';
@@ -42,11 +44,20 @@ export function DealDashboard() {
   const [showUpload, setShowUpload] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [dealStats, setDealStats] = useState<DealStats | null>(null);
+  const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [selectedDocument, setSelectedDocument] = useState<DocumentItem | null>(null);
+  const [showDocumentViewer, setShowDocumentViewer] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
     loadDeals();
   }, []);
+
+  useEffect(() => {
+    if (selectedDeal) {
+      loadDealDocuments(selectedDeal);
+    }
+  }, [selectedDeal]);
 
   const loadDeals = async () => {
     try {
@@ -77,6 +88,139 @@ export function DealDashboard() {
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadDealDocuments = async (dealName: string) => {
+    try {
+      // In a real implementation, this would fetch actual documents from the deal folder
+      // For now, we'll generate sample documents
+      const sampleDocuments: DocumentItem[] = [
+        {
+          id: '1',
+          name: 'Purchase Agreement.pdf',
+          type: 'legal',
+          status: 'completed',
+          uploadDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+          analysisDate: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
+          size: 2456789,
+          confidence: 0.92,
+          path: `Deals/${dealName}/legal/Purchase Agreement.pdf`,
+          tags: ['contract', 'acquisition', 'terms']
+        },
+        {
+          id: '2',
+          name: 'Financial Statements Q3.xlsx',
+          type: 'financial',
+          status: 'completed',
+          uploadDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+          analysisDate: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000),
+          size: 1234567,
+          confidence: 0.88,
+          path: `Deals/${dealName}/financial/Financial Statements Q3.xlsx`,
+          tags: ['quarterly', 'financials', 'revenue']
+        },
+        {
+          id: '3',
+          name: 'Due Diligence Report.docx',
+          type: 'legal',
+          status: 'processing',
+          uploadDate: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
+          size: 987654,
+          path: `Deals/${dealName}/legal/Due Diligence Report.docx`,
+          tags: ['due-diligence', 'review']
+        },
+        {
+          id: '4',
+          name: 'Market Analysis.pptx',
+          type: 'general',
+          status: 'completed',
+          uploadDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+          analysisDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+          size: 3456789,
+          confidence: 0.76,
+          path: `Deals/${dealName}/general/Market Analysis.pptx`,
+          tags: ['market', 'analysis', 'competition']
+        },
+        {
+          id: '5',
+          name: 'Valuation Model.xlsx',
+          type: 'financial',
+          status: 'error',
+          uploadDate: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000),
+          size: 5678901,
+          path: `Deals/${dealName}/financial/Valuation Model.xlsx`,
+          tags: ['valuation', 'dcf', 'model']
+        }
+      ];
+      
+      setDocuments(sampleDocuments);
+    } catch (error) {
+      console.error('Error loading deal documents:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load deal documents",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDocumentSelect = (document: DocumentItem) => {
+    setSelectedDocument(document);
+    setShowDocumentViewer(true);
+  };
+
+  const handleDocumentAction = async (documentId: string, action: 'move' | 'delete' | 'reprocess') => {
+    const document = documents.find(d => d.id === documentId);
+    if (!document) return;
+
+    try {
+      switch (action) {
+        case 'move':
+          toast({
+            title: "Move Document",
+            description: `Move dialog for "${document.name}" would open here`,
+          });
+          break;
+        case 'delete':
+          // In a real implementation, this would delete the document
+          setDocuments(prev => prev.filter(d => d.id !== documentId));
+          toast({
+            title: "Document Deleted",
+            description: `"${document.name}" has been deleted`,
+          });
+          break;
+        case 'reprocess':
+          // In a real implementation, this would trigger reprocessing
+          setDocuments(prev => prev.map(d => 
+            d.id === documentId 
+              ? { ...d, status: 'processing' as const }
+              : d
+          ));
+          toast({
+            title: "Reprocessing Started",
+            description: `"${document.name}" is being reprocessed`,
+          });
+          // Simulate processing completion
+          setTimeout(() => {
+            setDocuments(prev => prev.map(d => 
+              d.id === documentId 
+                ? { ...d, status: 'completed' as const, analysisDate: new Date() }
+                : d
+            ));
+            toast({
+              title: "Reprocessing Complete",
+              description: `"${document.name}" has been reprocessed`,
+            });
+          }, 3000);
+          break;
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: `Failed to ${action} document`,
+        variant: "destructive",
+      });
     }
   };
 
@@ -278,40 +422,14 @@ export function DealDashboard() {
                 </div>
               )}
 
-              {/* Document Categories */}
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
-                <h3 className="text-lg font-semibold mb-4">Document Categories</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium">Legal Documents</span>
-                      <span className="text-sm text-gray-500">15</span>
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      Contracts, agreements, legal opinions
-                    </div>
-                  </div>
-                  
-                  <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium">Financial Documents</span>
-                      <span className="text-sm text-gray-500">22</span>
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      Financial statements, models, valuations
-                    </div>
-                  </div>
-                  
-                  <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium">General Documents</span>
-                      <span className="text-sm text-gray-500">13</span>
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      Presentations, reports, correspondence
-                    </div>
-                  </div>
-                </div>
+              {/* Document Search and Management */}
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold mb-4">Documents</h3>
+                <DocumentSearch
+                  documents={documents}
+                  onDocumentSelect={handleDocumentSelect}
+                  onDocumentAction={handleDocumentAction}
+                />
               </div>
 
               {/* Recent Activity */}
@@ -371,6 +489,18 @@ export function DealDashboard() {
           </div>
         )}
       </div>
+
+      {/* Document Viewer Modal */}
+      {showDocumentViewer && selectedDocument && (
+        <DocumentViewer
+          documentPath={selectedDocument.path}
+          documentName={selectedDocument.name}
+          onClose={() => {
+            setShowDocumentViewer(false);
+            setSelectedDocument(null);
+          }}
+        />
+      )}
     </div>
   );
 } 

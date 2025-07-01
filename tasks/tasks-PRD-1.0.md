@@ -53,16 +53,16 @@
   - [x] 5.7 Create summary report generator
   - [x] 5.8 Add export functionality for analysis results
 
-## Task 6: User Interface - Document Management
-- [ ] 6.0 User Interface - Document Management
+## Task 6: User Interface - Document Management ✓
+- [x] 6.0 User Interface - Document Management
   - [x] 6.1 Create deal selection/creation interface
   - [x] 6.2 Build drag-and-drop upload interface
   - [x] 6.3 Implement document preview system
   - [x] 6.4 Create document status dashboard
   - [x] 6.5 Build batch upload progress indicator
-  - [ ] 6.6 Implement document search and filter
+  - [x] 6.6 Implement document search and filter
   - [x] 6.7 Create document organization view
-  - [ ] 6.8 Add document action menu (move, delete, reprocess)
+  - [x] 6.8 Add document action menu (move, delete, reprocess)
 
 ## Task 7: User Interface - Analysis Views
 - [ ] 7.0 User Interface - Analysis Views
