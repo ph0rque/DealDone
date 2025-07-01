@@ -351,6 +351,14 @@ func (a *App) GetConfiguredDealsPath() string {
 	return a.configService.GetDealsPath()
 }
 
+// GetDealFolderPath returns the full path to a specific deal folder
+func (a *App) GetDealFolderPath(dealName string) string {
+	if a.folderManager == nil {
+		return ""
+	}
+	return a.folderManager.GetDealPath(dealName)
+}
+
 // AI Configuration Methods
 
 // GetAIProviderStatus returns the status of all AI providers

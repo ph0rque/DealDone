@@ -11,7 +11,7 @@ import {
   Search,
   Filter
 } from 'lucide-react';
-import { GetDealsList, ProcessFolder, CreateDeal } from '../../wailsjs/go/main/App';
+import { GetDealsList, ProcessFolder, CreateDeal, GetDealFolderPath } from '../../wailsjs/go/main/App';
 import { DocumentUpload } from './DocumentUpload';
 import { DocumentSearch, DocumentItem } from './DocumentSearch';
 import { DocumentViewer } from './DocumentViewer';
@@ -278,7 +278,19 @@ export function DealDashboard() {
 
   const processDealFolder = async (dealName: string) => {
     try {
-      const results = await ProcessFolder(`Deals/${dealName}`, dealName);
+      // Get the full path to the deal folder
+      const dealFolderPath = await GetDealFolderPath(dealName);
+      
+      if (!dealFolderPath) {
+        toast({
+          title: "Error",
+          description: "Could not determine deal folder path",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      const results = await ProcessFolder(dealFolderPath, dealName);
       
       if (results && results.length > 0) {
         toast({
