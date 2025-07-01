@@ -12,6 +12,29 @@ import (
 	"time"
 )
 
+// Numeric type constraint for min/max functions
+type Numeric interface {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 |
+		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 |
+		~float32 | ~float64
+}
+
+// min returns the smaller of two comparable values
+func min[T Numeric](a, b T) T {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// max returns the larger of two comparable values
+func max[T Numeric](a, b T) T {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 // createFileSystemID generates a unique ID for a file system item based on its path
 func createFileSystemID(path string) string {
 	hash := md5.Sum([]byte(path))
@@ -50,17 +73,17 @@ func getFilePermissions(path string) FilePermissions {
 	}
 
 	mode := info.Mode()
-	
+
 	// Check readable
 	if mode&0400 != 0 { // Owner read permission
 		perms.Readable = true
 	}
-	
+
 	// Check writable
 	if mode&0200 != 0 { // Owner write permission
 		perms.Writable = true
 	}
-	
+
 	// Check executable
 	if mode&0100 != 0 { // Owner execute permission
 		perms.Executable = true
@@ -157,7 +180,7 @@ func getBirthTime(path string) time.Time {
 	if err != nil {
 		return time.Time{}
 	}
-	
+
 	// On most systems, we use ModTime as creation time
 	// This could be enhanced with platform-specific code
 	return info.ModTime()
@@ -173,7 +196,7 @@ func validateFileName(name string) error {
 	if name == "" {
 		return fmt.Errorf("filename cannot be empty")
 	}
-	
+
 	// Check for invalid characters
 	invalidChars := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
 	for _, char := range invalidChars {
@@ -181,7 +204,7 @@ func validateFileName(name string) error {
 			return fmt.Errorf("filename contains invalid character: %s", char)
 		}
 	}
-	
+
 	// Check for reserved names (Windows)
 	reservedNames := []string{"CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"}
 	upperName := strings.ToUpper(name)
@@ -190,6 +213,6 @@ func validateFileName(name string) error {
 			return fmt.Errorf("filename uses reserved name: %s", name)
 		}
 	}
-	
+
 	return nil
-} 
+}

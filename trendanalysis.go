@@ -420,9 +420,6 @@ func (ta *TrendAnalyzer) analyzeMetricTrend(metricName string, data []DataPoint)
 func (ta *TrendAnalyzer) calculateTrendLine(data []DataPoint) TrendLine {
 	n := float64(len(data))
 
-	// Convert timestamps to numeric values (days from first point)
-	startTime := data[0].Timestamp
-
 	sumX, sumY, sumXY, sumX2 := 0.0, 0.0, 0.0, 0.0
 
 	for i, point := range data {
@@ -1095,11 +1092,4 @@ func (ta *TrendAnalyzer) QuickTrendAssessment(metricName string, values []float6
 	}
 
 	return assessment
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
