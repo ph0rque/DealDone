@@ -15,6 +15,7 @@ import { GetDealsList, ProcessFolder } from '../../wailsjs/go/main/App';
 import { DocumentUpload } from './DocumentUpload';
 import { DocumentSearch, DocumentItem } from './DocumentSearch';
 import { DocumentViewer } from './DocumentViewer';
+import { DealCreationDialog } from './DealCreationDialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { useToast } from '../hooks/use-toast';
@@ -47,6 +48,7 @@ export function DealDashboard() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [selectedDocument, setSelectedDocument] = useState<DocumentItem | null>(null);
   const [showDocumentViewer, setShowDocumentViewer] = useState(false);
+  const [showDealCreation, setShowDealCreation] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -225,11 +227,37 @@ export function DealDashboard() {
   };
 
   const createNewDeal = () => {
-    // This would open a dialog to create a new deal
-    toast({
-      title: "Create New Deal",
-      description: "Deal creation dialog would open here",
-    });
+    setShowDealCreation(true);
+  };
+
+  const handleDealCreated = async (dealData: any) => {
+    try {
+      // In a real implementation, this would:
+      // 1. Create the deal folder structure
+      // 2. Save deal metadata
+      // 3. Call backend API to register the deal
+      
+      // For now, add it to the local state
+      const newDeal: Deal = {
+        name: dealData.name,
+        createdAt: new Date(),
+        documentCount: 0,
+        analysisComplete: false,
+        riskScore: 0,
+        completeness: 0,
+      };
+
+      setDeals(prev => [newDeal, ...prev]);
+      setSelectedDeal(dealData.name);
+      
+    } catch (error) {
+      console.error('Error creating deal:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create deal",
+        variant: "destructive",
+      });
+    }
   };
 
   const processDealFolder = async (dealName: string) => {
@@ -499,6 +527,14 @@ export function DealDashboard() {
             setShowDocumentViewer(false);
             setSelectedDocument(null);
           }}
+        />
+      )}
+
+      {/* Deal Creation Dialog */}
+      {showDealCreation && (
+        <DealCreationDialog
+          onClose={() => setShowDealCreation(false)}
+          onDealCreated={handleDealCreated}
         />
       )}
     </div>
