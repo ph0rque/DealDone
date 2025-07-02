@@ -23,6 +23,45 @@ import type {
   SearchResult as LocalSearchResult 
 } from '../types'
 
+// Helper function to convert Go Time to JavaScript Date
+function convertTimeToDate(time: any): Date {
+  if (!time) return new Date()
+  
+  // If it's already a Date, return it
+  if (time instanceof Date) return time
+  
+  // If it's a string, parse it
+  if (typeof time === 'string') return new Date(time)
+  
+  // If it's a Go Time object with a time string property
+  if (time.time) return new Date(time.time)
+  
+  // If it has nanoseconds since epoch
+  if (typeof time === 'number') return new Date(time / 1000000) // Convert nanoseconds to milliseconds
+  
+  // Fallback to current time
+  return new Date()
+}
+
+// Helper function to convert backend item to frontend format
+function convertToFrontendItem(item: any): FileSystemItem {
+  return {
+    id: item.id || '',
+    name: item.name || '',
+    path: item.path || '',
+    isDirectory: item.isDirectory || false,
+    size: item.size || 0,
+    modifiedAt: convertTimeToDate(item.modifiedAt),
+    createdAt: convertTimeToDate(item.createdAt),
+    permissions: item.permissions || { readable: false, writable: false, executable: false },
+    extension: item.extension,
+    mimeType: item.mimeType,
+    children: item.children ? item.children.map(convertToFrontendItem) : undefined,
+    isExpanded: false,
+    isLoading: false
+  }
+}
+
 export class FileManagerAPI {
   /**
    * List directory contents
@@ -42,14 +81,8 @@ export class FileManagerAPI {
         return []
       }
       
-      // Convert backend items to frontend format with Date objects
-      return items.map(item => ({
-        ...item,
-        modifiedAt: new Date(item.modifiedAt),
-        createdAt: new Date(item.createdAt),
-        isExpanded: false,
-        isLoading: false
-      }))
+      // Convert backend items to frontend format with proper Date conversion
+      return items.map(convertToFrontendItem)
     } catch (error) {
       console.error('Failed to list directory:', error)
       throw new Error(`Failed to list directory: ${error}`)
@@ -222,14 +255,8 @@ export class FileManagerAPI {
       // Ensure result.items is an array - handle null/undefined case
       const itemsArray = result.items || []
       
-      // Convert backend items to frontend format
-      const items = itemsArray.map(item => ({
-        ...item,
-        modifiedAt: new Date(item.modifiedAt),
-        createdAt: new Date(item.createdAt),
-        isExpanded: false,
-        isLoading: false
-      }))
+      // Convert backend items to frontend format with proper Date conversion
+      const items = itemsArray.map(convertToFrontendItem)
       
       return {
         items,

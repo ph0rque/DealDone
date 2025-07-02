@@ -49,6 +49,7 @@ type App struct {
 	schemaValidator         *WebhookSchemaValidator
 	authManager             *AuthManager
 	queueManager            *QueueManager
+	conflictResolver        *ConflictResolver
 }
 
 // NewApp creates a new App application struct
@@ -225,6 +226,34 @@ func (a *App) startup(ctx context.Context) {
 	if err := a.queueManager.Start(); err != nil {
 		fmt.Printf("Warning: Failed to start queue manager: %v\n", err)
 	}
+
+	// Initialize conflict resolver
+	conflictStoragePath := filepath.Join(configService.GetDealDoneRoot(), "data", "conflicts")
+	os.MkdirAll(conflictStoragePath, 0755) // Ensure directory exists
+
+	// Create a simple logger implementation for ConflictResolver
+	appLogger := &AppLogger{}
+
+	a.conflictResolver = NewConflictResolver(conflictStoragePath, appLogger)
+}
+
+// AppLogger implements the Logger interface for ConflictResolver
+type AppLogger struct{}
+
+func (al *AppLogger) Info(format string, args ...interface{}) {
+	log.Printf("[CONFLICT-INFO] "+format, args...)
+}
+
+func (al *AppLogger) Debug(format string, args ...interface{}) {
+	log.Printf("[CONFLICT-DEBUG] "+format, args...)
+}
+
+func (al *AppLogger) Warn(format string, args ...interface{}) {
+	log.Printf("[CONFLICT-WARN] "+format, args...)
+}
+
+func (al *AppLogger) Error(format string, args ...interface{}) {
+	log.Printf("[CONFLICT-ERROR] "+format, args...)
 }
 
 // GetHomeDirectory returns the user's home directory
