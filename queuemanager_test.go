@@ -90,13 +90,13 @@ func TestQueueManager_PriorityOrdering(t *testing.T) {
 	// Check order - high priority should be first
 	qm.mutex.RLock()
 	if qm.queue[0].Priority != PriorityHigh {
-		t.Errorf("Expected first item to be high priority, got %s", qm.queue[0].Priority)
+		t.Errorf("Expected first item to be high priority, got %v", qm.queue[0].Priority)
 	}
 	if qm.queue[1].Priority != PriorityNormal {
-		t.Errorf("Expected second item to be normal priority, got %s", qm.queue[1].Priority)
+		t.Errorf("Expected second item to be normal priority, got %v", qm.queue[1].Priority)
 	}
 	if qm.queue[2].Priority != PriorityLow {
-		t.Errorf("Expected third item to be low priority, got %s", qm.queue[2].Priority)
+		t.Errorf("Expected third item to be low priority, got %v", qm.queue[2].Priority)
 	}
 	qm.mutex.RUnlock()
 }

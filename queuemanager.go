@@ -300,13 +300,77 @@ func (qm *QueueManager) SynchronizeWorkflowState(jobId, workflowStatus string) e
 
 // GetProcessingHistory returns processing history for a deal
 func (qm *QueueManager) GetProcessingHistory(dealName string, limit int) []*ProcessingHistory {
-	// Placeholder implementation - return empty slice
-	return []*ProcessingHistory{}
+	qm.historyMutex.RLock()
+	defer qm.historyMutex.RUnlock()
+
+	var history []*ProcessingHistory
+	for _, h := range qm.processingHistory {
+		if h.DealName == dealName {
+			history = append(history, h)
+		}
+	}
+
+	// Sort by start time (most recent first)
+	for i := 0; i < len(history)-1; i++ {
+		for j := i + 1; j < len(history); j++ {
+			if history[i].StartTime.Before(history[j].StartTime) {
+				history[i], history[j] = history[j], history[i]
+			}
+		}
+	}
+
+	// Apply limit
+	if limit > 0 && len(history) > limit {
+		history = history[:limit]
+	}
+
+	return history
 }
 
 // RecordProcessingHistory adds a processing history entry
 func (qm *QueueManager) RecordProcessingHistory(dealName, documentPath, processingType string, results map[string]interface{}) {
-	// Placeholder implementation
+	qm.historyMutex.Lock()
+	defer qm.historyMutex.Unlock()
+
+	historyItem := &ProcessingHistory{
+		ID:              uuid.New().String(),
+		DealName:        dealName,
+		DocumentPath:    documentPath,
+		ProcessingType:  processingType,
+		StartTime:       time.Now(),
+		Status:          "completed",
+		Results:         results,
+		Version:         1,
+		UserCorrections: []UserCorrection{},
+	}
+
+	// Extract specific fields from results
+	if templatesUsed, ok := results["templatesUsed"].([]string); ok {
+		historyItem.TemplatesUsed = templatesUsed
+	} else if templatesUsedInterface, ok := results["templatesUsed"].([]interface{}); ok {
+		for _, template := range templatesUsedInterface {
+			if templateStr, ok := template.(string); ok {
+				historyItem.TemplatesUsed = append(historyItem.TemplatesUsed, templateStr)
+			}
+		}
+	}
+
+	if fieldsExtracted, ok := results["fieldsExtracted"].(float64); ok {
+		historyItem.FieldsExtracted = int(fieldsExtracted)
+	}
+
+	if confidenceScore, ok := results["confidenceScore"].(float64); ok {
+		historyItem.ConfidenceScore = confidenceScore
+	}
+
+	// Set end time
+	endTime := time.Now()
+	historyItem.EndTime = &endTime
+
+	qm.processingHistory[historyItem.ID] = historyItem
+
+	// Persist state
+	go qm.persistState()
 }
 
 func (qm *QueueManager) matchesQuery(item *QueueItem, query QueueQuery) bool {
@@ -341,5 +405,42 @@ func (qm *QueueManager) cleanupCompletedItems() {
 }
 
 func (qm *QueueManager) updateDealFolderMirror(dealName, documentPath string) {
-	// Placeholder implementation
+	qm.folderMutex.Lock()
+	defer qm.folderMutex.Unlock()
+
+	// Get or create deal folder mirror
+	mirror, exists := qm.dealFolders[dealName]
+	if !exists {
+		mirror = &DealFolderMirror{
+			DealName:      dealName,
+			FolderPath:    filepath.Dir(documentPath),
+			FileStructure: make(map[string]FileStructInfo),
+			SyncStatus:    SyncStatusOutOfSync,
+			LastSynced:    time.Now(),
+		}
+		qm.dealFolders[dealName] = mirror
+	}
+
+	// Add file to structure
+	fileInfo := FileStructInfo{
+		Path:            documentPath,
+		ModifiedAt:      time.Now(),
+		Size:            0,  // Would need to stat file for real size
+		Checksum:        "", // Would compute actual checksum in production
+		ProcessingState: "queued",
+		QueueItemID:     "", // Would be set when processing starts
+	}
+
+	mirror.FileStructure[documentPath] = fileInfo
+	mirror.FileCount = len(mirror.FileStructure)
+	mirror.LastSynced = time.Now()
+
+	// Update overall sync status based on any processing states
+	mirror.SyncStatus = SyncStatusSynced
+	for _, info := range mirror.FileStructure {
+		if info.ProcessingState == "queued" || info.ProcessingState == "processing" {
+			mirror.SyncStatus = SyncStatusOutOfSync
+			break
+		}
+	}
 }

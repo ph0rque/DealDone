@@ -56,6 +56,18 @@ func NewApp() *App {
 	return &App{}
 }
 
+// Helper function to convert ProcessingPriority to string
+func priorityToString(priority ProcessingPriority) string {
+	switch priority {
+	case PriorityHigh:
+		return "high"
+	case PriorityLow:
+		return "low"
+	default:
+		return "normal"
+	}
+}
+
 // startup is called when the app starts. The context is saved
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
@@ -2788,7 +2800,7 @@ func (a *App) EnqueueDocument(dealName, documentPath, documentName string, prior
 		"dealName":          item.DealName,
 		"documentPath":      item.DocumentPath,
 		"documentName":      item.DocumentName,
-		"priority":          string(item.Priority),
+		"priority":          priorityToString(item.Priority),
 		"status":            string(item.Status),
 		"queuedAt":          item.QueuedAt.Format(time.RFC3339),
 		"estimatedDuration": item.EstimatedDuration.String(),
@@ -2811,7 +2823,7 @@ func (a *App) GetQueueStatus() (map[string]interface{}, error) {
 
 	priorityBreakdown := make(map[string]int)
 	for priority, count := range stats.PriorityBreakdown {
-		priorityBreakdown[string(priority)] = count
+		priorityBreakdown[priorityToString(priority)] = count
 	}
 
 	return map[string]interface{}{
@@ -2875,7 +2887,7 @@ func (a *App) QueryQueue(dealName, status, priority string, limit, offset int, s
 			"dealName":     item.DealName,
 			"documentPath": item.DocumentPath,
 			"documentName": item.DocumentName,
-			"priority":     string(item.Priority),
+			"priority":     priorityToString(item.Priority),
 			"status":       string(item.Status),
 			"queuedAt":     item.QueuedAt.Format(time.RFC3339),
 			"retryCount":   item.RetryCount,

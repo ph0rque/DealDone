@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -284,7 +285,7 @@ func TestIdentifyKeyInsights(t *testing.T) {
 	foundRiskInsight := false
 
 	for _, insight := range insights {
-		if insight.Type == "opportunity" && contains(insight.Description, "revenue growth") {
+		if insight.Type == "opportunity" && strings.Contains(insight.Description, "revenue growth") {
 			foundRevenueInsight = true
 			assert.Equal(t, "high", insight.Impact)
 			assert.NotEmpty(t, insight.Evidence)

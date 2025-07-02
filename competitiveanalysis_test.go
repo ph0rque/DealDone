@@ -109,7 +109,7 @@ func TestPerformSWOT(t *testing.T) {
 	// Check that competitor is mentioned in threats
 	foundCompetitorThreat := false
 	for _, threat := range swot.Threats {
-		if contains(threat.Description, "BigCorp") {
+		if stringContains(threat.Description, "BigCorp") {
 			foundCompetitorThreat = true
 			break
 		}
@@ -425,6 +425,6 @@ func TestAnalyzeCompetitiveLandscapeIntegration(t *testing.T) {
 }
 
 // Helper function
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && s[0:len(substr)] == substr || len(s) > len(substr) && contains(s[1:], substr)
+func stringContains(s, substr string) bool {
+	return len(s) >= len(substr) && s[0:len(substr)] == substr || len(s) > len(substr) && stringContains(s[1:], substr)
 }
