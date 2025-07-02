@@ -1,7 +1,35 @@
 # Active Context
 
 ## Current Focus
-Task 4 (Template Management) is now 100% complete! Ready to move on to remaining tasks or integration testing.
+**Just Completed: Task 2.1 - Main n8n Document Processing Workflow**
+Successfully designed and implemented the core n8n workflow that orchestrates the entire document analysis pipeline. Created a comprehensive 22-node workflow with intelligent routing, parallel processing, and seamless DealDone integration.
+
+**BREAKTHROUGH ACHIEVEMENT!** The main n8n workflow bridges DealDone's infrastructure with automated document processing, creating the first complete end-to-end automation pipeline for M&A deal analysis.
+
+## Recently Completed - PRD-1.1 Planning
+
+### New Architecture Direction: n8n Workflow Integration
+Created comprehensive PRD-1.1.md defining transition from current direct processing to workflow-based system:
+
+**Key Architectural Changes:**
+- **Push-based webhooks**: DealDone triggers n8n workflows instead of direct AI calls
+- **Queue-based processing**: Sequential document analysis with intelligent queueing
+- **State mirroring**: n8n maintains deal folder structure tracking for resilience
+- **Intelligent merging**: Composite confidence scoring when multiple documents populate same fields
+- **Error resilience**: Automatic retries, partial completion support, workflow resumption
+
+**Implementation Phases:**
+1. **Phase 1 (Weeks 1-2)**: Basic webhook integration and simple workflows
+2. **Phase 2 (Weeks 3-4)**: Advanced merging, error handling, user correction feedback
+3. **Phase 3 (Week 5+)**: Optimization, monitoring, and advanced features
+
+### Impact on Existing System:
+- Current AI service infrastructure remains but becomes API endpoints for n8n
+- Template management system (Task 4) perfectly positioned for workflow integration
+- Document processing pipeline will be enhanced, not replaced
+- All existing UI components can continue working with workflow backend
+
+## Previous Completion - Task 4 Implementation
 
 ## Recently Completed - Task 4 Implementation
 

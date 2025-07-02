@@ -1,10 +1,20 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
+	"log"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"sync"
 	"time"
 )
 
@@ -29,6 +39,15 @@ type App struct {
 	competitiveAnalyzer     *CompetitiveAnalyzer
 	trendAnalyzer           *TrendAnalyzer
 	anomalyDetector         *AnomalyDetector
+	webhookService          *WebhookService
+	webhookHandlers         *WebhookHandlers
+	webhookServer           *http.Server
+	webhookServerConfig     *WebhookServerConfig
+	webhookServerMu         sync.RWMutex
+	jobTracker              *JobTracker
+	n8nIntegration          *N8nIntegrationService
+	schemaValidator         *WebhookSchemaValidator
+	authManager             *AuthManager
 }
 
 // NewApp creates a new App application struct
@@ -109,6 +128,80 @@ func (a *App) startup(ctx context.Context) {
 	a.competitiveAnalyzer = NewCompetitiveAnalyzer(aiService, a.documentProcessor)
 	a.trendAnalyzer = NewTrendAnalyzer(aiService, a.dataMapper)
 	a.anomalyDetector = NewAnomalyDetector(aiService, a.dataMapper)
+
+	// Initialize webhook service with default configuration
+	webhookConfig := &WebhookConfig{
+		N8NBaseURL: "http://localhost:5678",
+		AuthConfig: WebhookAuthConfig{
+			APIKey:          "",
+			SharedSecret:    "",
+			TokenExpiration: 0,
+			EnableHMAC:      false, // Will be enabled when secrets are configured
+		},
+		TimeoutSeconds:  30,
+		MaxRetries:      3,
+		RetryDelayMs:    1000,
+		EnableLogging:   true,
+		ValidatePayload: true,
+	}
+
+	webhookService, err := NewWebhookService(webhookConfig)
+	if err != nil {
+		fmt.Printf("Warning: Failed to initialize webhook service: %v\n", err)
+		// Create a minimal webhook service to allow the app to function
+		webhookService = &WebhookService{
+			config: webhookConfig,
+		}
+	}
+	a.webhookService = webhookService
+
+	// Initialize job tracker
+	a.jobTracker = NewJobTracker(configService)
+
+	// Initialize n8n integration service
+	n8nConfig := &N8nConfig{
+		BaseURL:               "http://localhost:5678",
+		APIKey:                "",
+		DefaultTimeout:        30 * time.Second,
+		MaxRetries:            3,
+		RetryDelay:            2 * time.Second,
+		MaxConcurrentJobs:     5,
+		EnableBatchProcessing: false,
+		BatchSize:             10,
+		BatchTimeout:          5 * time.Minute,
+		HealthCheckInterval:   1 * time.Minute,
+		LogRequests:           true,
+	}
+
+	n8nIntegration, err := NewN8nIntegrationService(n8nConfig, a.jobTracker, webhookService)
+	if err != nil {
+		fmt.Printf("Warning: Failed to initialize n8n integration: %v\n", err)
+		// Create a minimal service to allow the app to function
+		n8nIntegration = &N8nIntegrationService{
+			config: n8nConfig,
+		}
+	}
+	a.n8nIntegration = n8nIntegration
+
+	// Start n8n integration service
+	if err := a.n8nIntegration.Start(); err != nil {
+		fmt.Printf("Warning: Failed to start n8n integration service: %v\n", err)
+	}
+
+	// Initialize schema validator
+	a.schemaValidator = NewWebhookSchemaValidator()
+
+	// Initialize authentication manager
+	authStoragePath := filepath.Join(configService.GetDealDoneRoot(), "config", "auth_keys.json")
+	authManager, err := NewAuthManager(authStoragePath, nil)
+	if err != nil {
+		fmt.Printf("Warning: Failed to initialize auth manager: %v\n", err)
+	} else {
+		a.authManager = authManager
+	}
+
+	// Initialize webhook handlers
+	a.webhookHandlers = NewWebhookHandlers(a, webhookService)
 }
 
 // GetHomeDirectory returns the user's home directory
@@ -909,4 +1002,1774 @@ func (a *App) exportAnomalyData(result *AnomalyDetectionResult, outputPath strin
 	// Implementation would depend on the format and requirements
 	// For now, return success
 	return nil
+}
+
+// Webhook-related methods
+
+// SendDocumentsToN8n sends documents to n8n for analysis
+func (a *App) SendDocumentsToN8n(dealName string, filePaths []string, triggerType string) (string, error) {
+	if a.n8nIntegration == nil {
+		return "", fmt.Errorf("n8n integration service not initialized")
+	}
+	if a.jobTracker == nil {
+		return "", fmt.Errorf("job tracker not initialized")
+	}
+
+	// Generate job ID
+	jobID := fmt.Sprintf("job_%d_%s", time.Now().UnixMilli(), dealName)
+
+	// Create job entry in tracker
+	a.jobTracker.CreateJob(jobID, dealName, WebhookTriggerType(triggerType), filePaths)
+
+	// Create payload
+	payload := &DocumentWebhookPayload{
+		DealName:    dealName,
+		FilePaths:   filePaths,
+		TriggerType: WebhookTriggerType(triggerType),
+		JobID:       jobID,
+		Timestamp:   time.Now().UnixMilli(),
+	}
+
+	// Send to n8n through integration service
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	request, err := a.n8nIntegration.SendDocumentAnalysisRequest(ctx, payload)
+	if err != nil {
+		// Mark job as failed
+		a.jobTracker.FailJob(jobID, fmt.Sprintf("Failed to send to n8n: %v", err))
+		return "", fmt.Errorf("failed to send documents to n8n: %w", err)
+	}
+
+	// Log the n8n request ID for tracking
+	log.Printf("Created n8n request %s for job %s", request.ID, jobID)
+
+	return jobID, nil
+}
+
+// GetWebhookJobStatus queries the status of a webhook job from local tracker first, then n8n if needed
+func (a *App) GetWebhookJobStatus(jobID string, dealName string) (map[string]interface{}, error) {
+	// Try to get job status from local tracker first
+	if a.jobTracker != nil {
+		if job, err := a.jobTracker.GetJob(jobID); err == nil {
+			return map[string]interface{}{
+				"jobId":              job.JobID,
+				"dealName":           job.DealName,
+				"status":             string(job.Status),
+				"progress":           job.Progress,
+				"currentStep":        job.CurrentStep,
+				"createdAt":          job.CreatedAt,
+				"updatedAt":          job.UpdatedAt,
+				"startedAt":          job.StartedAt,
+				"completedAt":        job.CompletedAt,
+				"estimatedTime":      job.EstimatedTime,
+				"processedDocuments": job.ProcessedDocuments,
+				"totalDocuments":     job.TotalDocuments,
+				"queuePosition":      job.QueuePosition,
+				"retryCount":         job.RetryCount,
+				"errors":             job.Errors,
+				"processingHistory":  job.ProcessingHistory,
+				"source":             "local_tracker",
+			}, nil
+		}
+	}
+
+	// Fall back to querying n8n directly
+	if a.webhookService == nil {
+		return nil, fmt.Errorf("webhook service not initialized and job not found in local tracker")
+	}
+
+	query := &WebhookStatusQuery{
+		JobID:     jobID,
+		DealName:  dealName,
+		Timestamp: time.Now().UnixMilli(),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	response, err := a.webhookService.QueryJobStatus(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query job status: %w", err)
+	}
+
+	return map[string]interface{}{
+		"jobId":          response.JobID,
+		"status":         response.Status,
+		"progress":       response.Progress,
+		"currentStep":    response.CurrentStep,
+		"estimatedTime":  response.EstimatedTime,
+		"lastUpdated":    response.LastUpdated,
+		"additionalInfo": response.AdditionalInfo,
+		"source":         "n8n_query",
+	}, nil
+}
+
+// GetWebhookConfiguration returns the current webhook configuration
+func (a *App) GetWebhookConfiguration() (map[string]interface{}, error) {
+	if a.webhookService == nil {
+		return nil, fmt.Errorf("webhook service not initialized")
+	}
+
+	config := a.webhookService.GetConfig()
+	return map[string]interface{}{
+		"n8nBaseURL":      config.N8NBaseURL,
+		"timeoutSeconds":  config.TimeoutSeconds,
+		"maxRetries":      config.MaxRetries,
+		"retryDelayMs":    config.RetryDelayMs,
+		"enableLogging":   config.EnableLogging,
+		"validatePayload": config.ValidatePayload,
+		"hasAPIKey":       config.AuthConfig.APIKey != "",
+		"hasSharedSecret": config.AuthConfig.SharedSecret != "",
+		"enableHMAC":      config.AuthConfig.EnableHMAC,
+	}, nil
+}
+
+// UpdateWebhookConfiguration updates the webhook configuration
+func (a *App) UpdateWebhookConfiguration(updates map[string]interface{}) error {
+	if a.webhookService == nil {
+		return fmt.Errorf("webhook service not initialized")
+	}
+
+	config := a.webhookService.GetConfig()
+
+	// Update fields if provided
+	if n8nURL, ok := updates["n8nBaseURL"].(string); ok {
+		config.N8NBaseURL = n8nURL
+	}
+	if timeout, ok := updates["timeoutSeconds"].(float64); ok {
+		config.TimeoutSeconds = int(timeout)
+	}
+	if maxRetries, ok := updates["maxRetries"].(float64); ok {
+		config.MaxRetries = int(maxRetries)
+	}
+	if retryDelay, ok := updates["retryDelayMs"].(float64); ok {
+		config.RetryDelayMs = int(retryDelay)
+	}
+	if enableLogging, ok := updates["enableLogging"].(bool); ok {
+		config.EnableLogging = enableLogging
+	}
+	if validatePayload, ok := updates["validatePayload"].(bool); ok {
+		config.ValidatePayload = validatePayload
+	}
+	if apiKey, ok := updates["apiKey"].(string); ok {
+		config.AuthConfig.APIKey = apiKey
+	}
+	if sharedSecret, ok := updates["sharedSecret"].(string); ok {
+		config.AuthConfig.SharedSecret = sharedSecret
+	}
+	if enableHMAC, ok := updates["enableHMAC"].(bool); ok {
+		config.AuthConfig.EnableHMAC = enableHMAC
+	}
+
+	return a.webhookService.UpdateConfig(config)
+}
+
+// StartWebhookServer starts the webhook HTTP server
+// StartWebhookServer starts the webhook HTTP server with comprehensive configuration
+func (a *App) StartWebhookServer(port int) error {
+	return a.StartWebhookServerWithConfig(map[string]interface{}{
+		"port":      port,
+		"autoStart": true,
+	})
+}
+
+// StartWebhookServerWithConfig starts the webhook server with detailed configuration
+func (a *App) StartWebhookServerWithConfig(configMap map[string]interface{}) error {
+	a.webhookServerMu.Lock()
+	defer a.webhookServerMu.Unlock()
+
+	if a.webhookHandlers == nil {
+		return fmt.Errorf("webhook handlers not initialized")
+	}
+
+	// Stop existing server if running
+	if a.webhookServer != nil {
+		if err := a.stopWebhookServerInternal(); err != nil {
+			log.Printf("Warning: Error stopping existing webhook server: %v", err)
+		}
+	}
+
+	// Parse configuration
+	config := &WebhookServerConfig{
+		Port:      8080,
+		AutoStart: true,
+	}
+
+	if port, ok := configMap["port"].(float64); ok {
+		config.Port = int(port)
+	} else if port, ok := configMap["port"].(int); ok {
+		config.Port = port
+	}
+
+	if autoStart, ok := configMap["autoStart"].(bool); ok {
+		config.AutoStart = autoStart
+	}
+
+	if enableHTTPS, ok := configMap["enableHTTPS"].(bool); ok {
+		config.EnableHTTPS = enableHTTPS
+	}
+
+	if certFile, ok := configMap["certFile"].(string); ok {
+		config.CertFile = certFile
+	}
+
+	if keyFile, ok := configMap["keyFile"].(string); ok {
+		config.KeyFile = keyFile
+	}
+
+	// Store configuration
+	a.webhookServerConfig = config
+
+	// Create server with authentication middleware
+	server := a.createAuthenticatedWebhookServer(config)
+	a.webhookServer = server
+
+	// Start the result processor
+	a.webhookHandlers.StartListening()
+
+	// Start server in a goroutine
+	go func() {
+		var err error
+		if config.EnableHTTPS && config.CertFile != "" && config.KeyFile != "" {
+			log.Printf("Starting HTTPS webhook server on port %d", config.Port)
+			err = server.ListenAndServeTLS(config.CertFile, config.KeyFile)
+		} else {
+			log.Printf("Starting HTTP webhook server on port %d", config.Port)
+			err = server.ListenAndServe()
+		}
+
+		if err != nil && err != http.ErrServerClosed {
+			log.Printf("Webhook server error: %v", err)
+		}
+	}()
+
+	log.Printf("Webhook server started successfully on port %d", config.Port)
+	return nil
+}
+
+// StopWebhookServer stops the webhook HTTP server
+func (a *App) StopWebhookServer() error {
+	a.webhookServerMu.Lock()
+	defer a.webhookServerMu.Unlock()
+
+	return a.stopWebhookServerInternal()
+}
+
+// stopWebhookServerInternal stops the webhook server (must be called with lock held)
+func (a *App) stopWebhookServerInternal() error {
+	if a.webhookServer == nil {
+		return fmt.Errorf("webhook server is not running")
+	}
+
+	// Stop the result processor
+	if a.webhookHandlers != nil {
+		a.webhookHandlers.StopListening()
+	}
+
+	// Shutdown server with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := a.webhookServer.Shutdown(ctx); err != nil {
+		return fmt.Errorf("failed to shutdown webhook server: %w", err)
+	}
+
+	a.webhookServer = nil
+	log.Printf("Webhook server stopped successfully")
+	return nil
+}
+
+// RestartWebhookServer restarts the webhook server with current configuration
+func (a *App) RestartWebhookServer() error {
+	a.webhookServerMu.RLock()
+	config := a.webhookServerConfig
+	a.webhookServerMu.RUnlock()
+
+	if config == nil {
+		return fmt.Errorf("no webhook server configuration available")
+	}
+
+	configMap := map[string]interface{}{
+		"port":        config.Port,
+		"enableHTTPS": config.EnableHTTPS,
+		"certFile":    config.CertFile,
+		"keyFile":     config.KeyFile,
+		"autoStart":   config.AutoStart,
+	}
+
+	return a.StartWebhookServerWithConfig(configMap)
+}
+
+// GetWebhookServerStatus returns the current status of the webhook server
+func (a *App) GetWebhookServerStatus() (map[string]interface{}, error) {
+	a.webhookServerMu.RLock()
+	defer a.webhookServerMu.RUnlock()
+
+	status := map[string]interface{}{
+		"timestamp": time.Now().UnixMilli(),
+		"running":   a.webhookServer != nil,
+	}
+
+	if a.webhookServerConfig != nil {
+		status["configuration"] = map[string]interface{}{
+			"port":        a.webhookServerConfig.Port,
+			"enableHTTPS": a.webhookServerConfig.EnableHTTPS,
+			"hasCertFile": a.webhookServerConfig.CertFile != "",
+			"hasKeyFile":  a.webhookServerConfig.KeyFile != "",
+			"autoStart":   a.webhookServerConfig.AutoStart,
+		}
+	}
+
+	// Add endpoint information
+	if a.webhookServer != nil {
+		protocol := "http"
+		if a.webhookServerConfig.EnableHTTPS {
+			protocol = "https"
+		}
+
+		baseURL := fmt.Sprintf("%s://localhost:%d", protocol, a.webhookServerConfig.Port)
+		status["endpoints"] = map[string]interface{}{
+			"results": fmt.Sprintf("%s/webhook/results", baseURL),
+			"status":  fmt.Sprintf("%s/webhook/status", baseURL),
+			"health":  fmt.Sprintf("%s/webhook/health", baseURL),
+			"baseURL": baseURL,
+		}
+	}
+
+	return status, nil
+}
+
+// GetWebhookServerConfiguration returns the current webhook server configuration
+func (a *App) GetWebhookServerConfiguration() (map[string]interface{}, error) {
+	a.webhookServerMu.RLock()
+	defer a.webhookServerMu.RUnlock()
+
+	if a.webhookServerConfig == nil {
+		return map[string]interface{}{
+			"port":        8080,
+			"enableHTTPS": false,
+			"autoStart":   true,
+		}, nil
+	}
+
+	return map[string]interface{}{
+		"port":        a.webhookServerConfig.Port,
+		"enableHTTPS": a.webhookServerConfig.EnableHTTPS,
+		"hasCertFile": a.webhookServerConfig.CertFile != "",
+		"hasKeyFile":  a.webhookServerConfig.KeyFile != "",
+		"autoStart":   a.webhookServerConfig.AutoStart,
+	}, nil
+}
+
+// UpdateWebhookServerConfiguration updates the webhook server configuration
+func (a *App) UpdateWebhookServerConfiguration(updates map[string]interface{}) error {
+	a.webhookServerMu.Lock()
+	defer a.webhookServerMu.Unlock()
+
+	if a.webhookServerConfig == nil {
+		a.webhookServerConfig = &WebhookServerConfig{
+			Port:      8080,
+			AutoStart: true,
+		}
+	}
+
+	config := a.webhookServerConfig
+	needsRestart := false
+
+	// Update configuration fields
+	if port, ok := updates["port"].(float64); ok {
+		newPort := int(port)
+		if config.Port != newPort {
+			config.Port = newPort
+			needsRestart = true
+		}
+	} else if port, ok := updates["port"].(int); ok {
+		if config.Port != port {
+			config.Port = port
+			needsRestart = true
+		}
+	}
+
+	if enableHTTPS, ok := updates["enableHTTPS"].(bool); ok {
+		if config.EnableHTTPS != enableHTTPS {
+			config.EnableHTTPS = enableHTTPS
+			needsRestart = true
+		}
+	}
+
+	if certFile, ok := updates["certFile"].(string); ok {
+		if config.CertFile != certFile {
+			config.CertFile = certFile
+			needsRestart = true
+		}
+	}
+
+	if keyFile, ok := updates["keyFile"].(string); ok {
+		if config.KeyFile != keyFile {
+			config.KeyFile = keyFile
+			needsRestart = true
+		}
+	}
+
+	if autoStart, ok := updates["autoStart"].(bool); ok {
+		config.AutoStart = autoStart
+	}
+
+	// Restart server if needed and it's currently running
+	if needsRestart && a.webhookServer != nil {
+		log.Printf("Webhook server configuration changed, restarting...")
+		if err := a.stopWebhookServerInternal(); err != nil {
+			log.Printf("Warning: Error stopping webhook server for restart: %v", err)
+		}
+
+		// Start with new configuration
+		server := a.createAuthenticatedWebhookServer(config)
+		a.webhookServer = server
+
+		go func() {
+			var err error
+			if config.EnableHTTPS && config.CertFile != "" && config.KeyFile != "" {
+				err = server.ListenAndServeTLS(config.CertFile, config.KeyFile)
+			} else {
+				err = server.ListenAndServe()
+			}
+
+			if err != nil && err != http.ErrServerClosed {
+				log.Printf("Webhook server error after restart: %v", err)
+			}
+		}()
+	}
+
+	return nil
+}
+
+// GetWebhookEndpoints returns the available webhook endpoints
+func (a *App) GetWebhookEndpoints() (map[string]interface{}, error) {
+	a.webhookServerMu.RLock()
+	defer a.webhookServerMu.RUnlock()
+
+	if a.webhookServer == nil || a.webhookServerConfig == nil {
+		return map[string]interface{}{
+			"running": false,
+			"message": "webhook server is not running",
+		}, nil
+	}
+
+	protocol := "http"
+	if a.webhookServerConfig.EnableHTTPS {
+		protocol = "https"
+	}
+
+	baseURL := fmt.Sprintf("%s://localhost:%d", protocol, a.webhookServerConfig.Port)
+
+	return map[string]interface{}{
+		"running":  true,
+		"baseURL":  baseURL,
+		"protocol": protocol,
+		"port":     a.webhookServerConfig.Port,
+		"endpoints": map[string]interface{}{
+			"results": map[string]interface{}{
+				"url":         fmt.Sprintf("%s/webhook/results", baseURL),
+				"method":      "POST",
+				"description": "Receive processing results from n8n workflows",
+				"auth":        "API key + HMAC signature required",
+			},
+			"status": map[string]interface{}{
+				"url":         fmt.Sprintf("%s/webhook/status", baseURL),
+				"method":      "GET",
+				"description": "Query job status by ID",
+				"auth":        "API key required",
+				"params":      []string{"jobId", "dealName"},
+			},
+			"health": map[string]interface{}{
+				"url":         fmt.Sprintf("%s/webhook/health", baseURL),
+				"method":      "GET",
+				"description": "Health check endpoint for monitoring",
+				"auth":        "none",
+			},
+		},
+	}, nil
+}
+
+// createAuthenticatedWebhookServer creates an HTTP server with authentication middleware
+func (a *App) createAuthenticatedWebhookServer(config *WebhookServerConfig) *http.Server {
+	mux := http.NewServeMux()
+
+	// Add authentication middleware for protected endpoints
+	mux.HandleFunc("/webhook/results", a.withAuthentication(a.webhookHandlers.HandleProcessingResults))
+	mux.HandleFunc("/webhook/status", a.withAuthentication(a.webhookHandlers.HandleStatusQuery))
+	mux.HandleFunc("/webhook/health", a.webhookHandlers.HandleHealthCheck) // No auth for health checks
+
+	return &http.Server{
+		Addr:         fmt.Sprintf(":%d", config.Port),
+		Handler:      mux,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+}
+
+// withAuthentication wraps an HTTP handler with API key and HMAC authentication
+func (a *App) withAuthentication(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Set CORS headers
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-API-Key, X-Signature, X-Timestamp")
+
+		// Handle preflight OPTIONS request
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// Skip authentication for health checks
+		if r.URL.Path == "/webhook/health" {
+			handler(w, r)
+			return
+		}
+
+		// Extract authentication headers
+		apiKey := r.Header.Get("X-API-Key")
+		signature := r.Header.Get("X-Signature")
+		timestamp := r.Header.Get("X-Timestamp")
+
+		if apiKey == "" {
+			http.Error(w, "Missing API key", http.StatusUnauthorized)
+			return
+		}
+
+		// Authenticate request using AuthManager
+		if a.authManager != nil {
+			// Read body for authentication
+			var body string
+			if r.Body != nil {
+				bodyBytes, err := io.ReadAll(r.Body)
+				if err != nil {
+					http.Error(w, "Failed to read request body", http.StatusBadRequest)
+					return
+				}
+				body = string(bodyBytes)
+				// Restore body for handler
+				r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+			}
+
+			// Parse timestamp
+			var timestampInt int64
+			if timestamp != "" {
+				var err error
+				timestampInt, err = strconv.ParseInt(timestamp, 10, 64)
+				if err != nil {
+					timestampInt = time.Now().Unix()
+				}
+			} else {
+				timestampInt = time.Now().Unix()
+			}
+
+			// Create authentication request
+			authReq := &AuthenticationRequest{
+				APIKey:    apiKey,
+				Signature: signature,
+				Timestamp: timestampInt,
+				Method:    r.Method,
+				Path:      r.URL.Path,
+				Body:      body,
+				Headers:   make(map[string]string),
+				ClientIP:  r.RemoteAddr,
+				UserAgent: r.UserAgent(),
+				RequestID: r.Header.Get("X-Request-ID"),
+			}
+
+			// Copy relevant headers
+			for key, values := range r.Header {
+				if len(values) > 0 {
+					authReq.Headers[key] = values[0]
+				}
+			}
+
+			// Authenticate the request
+			authResult, err := a.authManager.AuthenticateRequest(authReq)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Authentication error: %v", err), http.StatusInternalServerError)
+				return
+			}
+
+			if !authResult.Success {
+				http.Error(w, authResult.ErrorMessage, http.StatusUnauthorized)
+				return
+			}
+
+			// Add authentication info to request context for handler use
+			ctx := context.WithValue(r.Context(), "authResult", authResult)
+			r = r.WithContext(ctx)
+		}
+
+		// Call the original handler
+		handler(w, r)
+	}
+}
+
+// GetWebhookServerHealth checks the health of the webhook services
+func (a *App) GetWebhookServerHealth() (map[string]interface{}, error) {
+	if a.webhookService == nil {
+		return nil, fmt.Errorf("webhook service not initialized")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	healthStatus := map[string]interface{}{
+		"timestamp": time.Now().UnixMilli(),
+	}
+
+	// Check webhook service health
+	if err := a.webhookService.IsHealthy(ctx); err != nil {
+		healthStatus["webhookService"] = map[string]interface{}{
+			"status": "unhealthy",
+			"error":  err.Error(),
+		}
+		healthStatus["overallStatus"] = "unhealthy"
+	} else {
+		healthStatus["webhookService"] = map[string]interface{}{
+			"status": "healthy",
+		}
+		healthStatus["overallStatus"] = "healthy"
+	}
+
+	// Check handlers status
+	if a.webhookHandlers != nil {
+		healthStatus["webhookHandlers"] = map[string]interface{}{
+			"status": "initialized",
+		}
+	}
+
+	return healthStatus, nil
+}
+
+// ValidateDocumentPayload validates a document webhook payload
+func (a *App) ValidateDocumentPayload(dealName string, filePaths []string, triggerType string) (map[string]interface{}, error) {
+	if a.webhookService == nil {
+		return nil, fmt.Errorf("webhook service not initialized")
+	}
+
+	payload := &DocumentWebhookPayload{
+		DealName:    dealName,
+		FilePaths:   filePaths,
+		TriggerType: WebhookTriggerType(triggerType),
+		JobID:       "validation-test",
+		Timestamp:   time.Now().UnixMilli(),
+	}
+
+	validationResult := a.webhookService.GetValidationResult(payload)
+
+	return map[string]interface{}{
+		"valid":  validationResult.Valid,
+		"errors": validationResult.Errors,
+	}, nil
+}
+
+// Job Tracking Methods
+
+// QueryJobs queries jobs based on criteria
+func (a *App) QueryJobs(dealName string, status string, triggerType string, limit int, offset int, sortBy string, sortOrder string) (map[string]interface{}, error) {
+	if a.jobTracker == nil {
+		return nil, fmt.Errorf("job tracker not initialized")
+	}
+
+	query := &JobQuery{
+		DealName:    dealName,
+		Status:      JobStatus(status),
+		TriggerType: WebhookTriggerType(triggerType),
+		Limit:       limit,
+		Offset:      offset,
+		SortBy:      sortBy,
+		SortOrder:   sortOrder,
+	}
+
+	jobs, err := a.jobTracker.QueryJobs(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query jobs: %w", err)
+	}
+
+	// Convert jobs to map format for frontend
+	jobsData := make([]map[string]interface{}, len(jobs))
+	for i, job := range jobs {
+		jobsData[i] = map[string]interface{}{
+			"jobId":              job.JobID,
+			"dealName":           job.DealName,
+			"status":             string(job.Status),
+			"triggerType":        string(job.TriggerType),
+			"filePaths":          job.FilePaths,
+			"createdAt":          job.CreatedAt,
+			"updatedAt":          job.UpdatedAt,
+			"startedAt":          job.StartedAt,
+			"completedAt":        job.CompletedAt,
+			"progress":           job.Progress,
+			"currentStep":        job.CurrentStep,
+			"estimatedTime":      job.EstimatedTime,
+			"processedDocuments": job.ProcessedDocuments,
+			"totalDocuments":     job.TotalDocuments,
+			"queuePosition":      job.QueuePosition,
+			"retryCount":         job.RetryCount,
+			"maxRetries":         job.MaxRetries,
+			"errors":             job.Errors,
+			"processingHistory":  job.ProcessingHistory,
+			"metadata":           job.Metadata,
+		}
+	}
+
+	return map[string]interface{}{
+		"jobs":       jobsData,
+		"totalCount": len(jobsData),
+		"query":      query,
+	}, nil
+}
+
+// GetJobSummary returns aggregated job statistics
+func (a *App) GetJobSummary() (map[string]interface{}, error) {
+	if a.jobTracker == nil {
+		return nil, fmt.Errorf("job tracker not initialized")
+	}
+
+	summary := a.jobTracker.GetJobSummary()
+
+	// Convert status counts to string keys for frontend
+	statusCounts := make(map[string]int)
+	for status, count := range summary.StatusCounts {
+		statusCounts[string(status)] = count
+	}
+
+	// Convert recent activity
+	recentActivity := make([]map[string]interface{}, len(summary.RecentActivity))
+	for i, entry := range summary.RecentActivity {
+		recentActivity[i] = map[string]interface{}{
+			"timestamp": entry.Timestamp,
+			"status":    entry.Status,
+			"step":      entry.Step,
+			"message":   entry.Message,
+			"progress":  entry.Progress,
+			"error":     entry.Error,
+		}
+	}
+
+	return map[string]interface{}{
+		"totalJobs":       summary.TotalJobs,
+		"activeJobs":      summary.ActiveJobs,
+		"completedJobs":   summary.CompletedJobs,
+		"failedJobs":      summary.FailedJobs,
+		"averageProgress": summary.AverageProgress,
+		"statusCounts":    statusCounts,
+		"dealCounts":      summary.DealCounts,
+		"recentActivity":  recentActivity,
+	}, nil
+}
+
+// GetJobsByDeal returns all jobs for a specific deal
+func (a *App) GetJobsByDeal(dealName string) ([]map[string]interface{}, error) {
+	result, err := a.QueryJobs(dealName, "", "", 0, 0, "updatedAt", "desc")
+	if err != nil {
+		return nil, err
+	}
+
+	if jobs, ok := result["jobs"].([]map[string]interface{}); ok {
+		return jobs, nil
+	}
+
+	return []map[string]interface{}{}, nil
+}
+
+// GetActiveJobs returns all currently active (processing, queued) jobs
+func (a *App) GetActiveJobs() ([]map[string]interface{}, error) {
+	processingJobs, err1 := a.QueryJobs("", "processing", "", 0, 0, "updatedAt", "desc")
+	queuedJobs, err2 := a.QueryJobs("", "queued", "", 0, 0, "updatedAt", "desc")
+
+	if err1 != nil && err2 != nil {
+		return nil, fmt.Errorf("failed to get active jobs: %v, %v", err1, err2)
+	}
+
+	var allActiveJobs []map[string]interface{}
+
+	if err1 == nil {
+		if jobs, ok := processingJobs["jobs"].([]map[string]interface{}); ok {
+			allActiveJobs = append(allActiveJobs, jobs...)
+		}
+	}
+
+	if err2 == nil {
+		if jobs, ok := queuedJobs["jobs"].([]map[string]interface{}); ok {
+			allActiveJobs = append(allActiveJobs, jobs...)
+		}
+	}
+
+	return allActiveJobs, nil
+}
+
+// RetryFailedJob retries a failed job
+func (a *App) RetryFailedJob(jobID string) error {
+	if a.jobTracker == nil {
+		return fmt.Errorf("job tracker not initialized")
+	}
+
+	return a.jobTracker.RetryJob(jobID)
+}
+
+// CancelJob cancels a pending or processing job
+func (a *App) CancelJob(jobID string) error {
+	if a.jobTracker == nil {
+		return fmt.Errorf("job tracker not initialized")
+	}
+
+	return a.jobTracker.CancelJob(jobID)
+}
+
+// GetJobDetails returns detailed information about a specific job
+func (a *App) GetJobDetails(jobID string) (map[string]interface{}, error) {
+	if a.jobTracker == nil {
+		return nil, fmt.Errorf("job tracker not initialized")
+	}
+
+	job, err := a.jobTracker.GetJob(jobID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get job details: %w", err)
+	}
+
+	// Convert processing history
+	historyData := make([]map[string]interface{}, len(job.ProcessingHistory))
+	for i, entry := range job.ProcessingHistory {
+		historyData[i] = map[string]interface{}{
+			"timestamp": entry.Timestamp,
+			"status":    entry.Status,
+			"step":      entry.Step,
+			"message":   entry.Message,
+			"progress":  entry.Progress,
+			"error":     entry.Error,
+		}
+	}
+
+	result := map[string]interface{}{
+		"jobId":              job.JobID,
+		"dealName":           job.DealName,
+		"status":             string(job.Status),
+		"triggerType":        string(job.TriggerType),
+		"filePaths":          job.FilePaths,
+		"createdAt":          job.CreatedAt,
+		"updatedAt":          job.UpdatedAt,
+		"startedAt":          job.StartedAt,
+		"completedAt":        job.CompletedAt,
+		"progress":           job.Progress,
+		"currentStep":        job.CurrentStep,
+		"estimatedTime":      job.EstimatedTime,
+		"processedDocuments": job.ProcessedDocuments,
+		"totalDocuments":     job.TotalDocuments,
+		"queuePosition":      job.QueuePosition,
+		"retryCount":         job.RetryCount,
+		"maxRetries":         job.MaxRetries,
+		"errors":             job.Errors,
+		"processingHistory":  historyData,
+		"metadata":           job.Metadata,
+	}
+
+	// Include processing results if available
+	if job.ProcessingResults != nil {
+		result["processingResults"] = map[string]interface{}{
+			"processedDocuments": job.ProcessingResults.ProcessedDocuments,
+			"templatesUpdated":   job.ProcessingResults.TemplatesUpdated,
+			"averageConfidence":  job.ProcessingResults.AverageConfidence,
+			"processingTime":     job.ProcessingResults.ProcessingTime,
+			"results":            job.ProcessingResults.Results,
+			"errors":             job.ProcessingResults.Errors,
+		}
+	}
+
+	return result, nil
+}
+
+// CleanupOldJobs removes old completed/failed jobs
+func (a *App) CleanupOldJobs(olderThanHours int) (int, error) {
+	if a.jobTracker == nil {
+		return 0, fmt.Errorf("job tracker not initialized")
+	}
+
+	if olderThanHours <= 0 {
+		olderThanHours = 168 // Default to 1 week
+	}
+
+	removedCount := a.jobTracker.CleanupOldJobs(olderThanHours)
+	return removedCount, nil
+}
+
+// GetJobTrackerHealth checks the health of the job tracking system
+func (a *App) GetJobTrackerHealth() (map[string]interface{}, error) {
+	if a.jobTracker == nil {
+		return map[string]interface{}{
+			"status": "unhealthy",
+			"error":  "job tracker not initialized",
+		}, fmt.Errorf("job tracker not initialized")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	healthStatus := map[string]interface{}{
+		"timestamp": time.Now().UnixMilli(),
+	}
+
+	if err := a.jobTracker.IsHealthy(ctx); err != nil {
+		healthStatus["status"] = "unhealthy"
+		healthStatus["error"] = err.Error()
+		return healthStatus, err
+	}
+
+	healthStatus["status"] = "healthy"
+
+	// Add some basic stats
+	if summary, err := a.GetJobSummary(); err == nil {
+		healthStatus["totalJobs"] = summary["totalJobs"]
+		healthStatus["activeJobs"] = summary["activeJobs"]
+	}
+
+	return healthStatus, nil
+}
+
+// N8n Integration Methods
+
+// GetN8nIntegrationStatus returns the status of the n8n integration service
+func (a *App) GetN8nIntegrationStatus() (map[string]interface{}, error) {
+	if a.n8nIntegration == nil {
+		return map[string]interface{}{
+			"status": "not_initialized",
+			"error":  "n8n integration service not initialized",
+		}, fmt.Errorf("n8n integration service not initialized")
+	}
+
+	stats := a.n8nIntegration.GetStats()
+
+	// Add health check
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	healthStatus := "healthy"
+	var healthError string
+	if err := a.n8nIntegration.IsHealthy(ctx); err != nil {
+		healthStatus = "unhealthy"
+		healthError = err.Error()
+	}
+
+	result := map[string]interface{}{
+		"status":            healthStatus,
+		"isRunning":         stats["isRunning"],
+		"queueSize":         stats["queueSize"],
+		"activeRequests":    stats["activeRequests"],
+		"maxConcurrentJobs": stats["maxConcurrentJobs"],
+		"batchSize":         stats["batchSize"],
+		"timestamp":         time.Now().UnixMilli(),
+	}
+
+	if healthError != "" {
+		result["error"] = healthError
+	}
+
+	return result, nil
+}
+
+// GetN8nConfiguration returns the current n8n configuration
+func (a *App) GetN8nConfiguration() (map[string]interface{}, error) {
+	if a.n8nIntegration == nil {
+		return nil, fmt.Errorf("n8n integration service not initialized")
+	}
+
+	config := a.n8nIntegration.config
+	return map[string]interface{}{
+		"baseURL":               config.BaseURL,
+		"hasAPIKey":             config.APIKey != "",
+		"defaultTimeout":        config.DefaultTimeout.Seconds(),
+		"maxRetries":            config.MaxRetries,
+		"retryDelay":            config.RetryDelay.Seconds(),
+		"maxConcurrentJobs":     config.MaxConcurrentJobs,
+		"enableBatchProcessing": config.EnableBatchProcessing,
+		"batchSize":             config.BatchSize,
+		"batchTimeout":          config.BatchTimeout.Seconds(),
+		"healthCheckInterval":   config.HealthCheckInterval.Seconds(),
+		"logRequests":           config.LogRequests,
+		"workflowEndpoints":     config.WorkflowEndpoints,
+	}, nil
+}
+
+// UpdateN8nConfiguration updates the n8n configuration
+func (a *App) UpdateN8nConfiguration(updates map[string]interface{}) error {
+	if a.n8nIntegration == nil {
+		return fmt.Errorf("n8n integration service not initialized")
+	}
+
+	config := a.n8nIntegration.config
+
+	// Update configuration fields
+	if baseURL, ok := updates["baseURL"].(string); ok {
+		config.BaseURL = baseURL
+	}
+	if apiKey, ok := updates["apiKey"].(string); ok {
+		config.APIKey = apiKey
+	}
+	if timeout, ok := updates["defaultTimeout"].(float64); ok {
+		config.DefaultTimeout = time.Duration(timeout) * time.Second
+	}
+	if maxRetries, ok := updates["maxRetries"].(float64); ok {
+		config.MaxRetries = int(maxRetries)
+	}
+	if retryDelay, ok := updates["retryDelay"].(float64); ok {
+		config.RetryDelay = time.Duration(retryDelay) * time.Second
+	}
+	if maxJobs, ok := updates["maxConcurrentJobs"].(float64); ok {
+		config.MaxConcurrentJobs = int(maxJobs)
+	}
+	if enableBatch, ok := updates["enableBatchProcessing"].(bool); ok {
+		config.EnableBatchProcessing = enableBatch
+	}
+	if batchSize, ok := updates["batchSize"].(float64); ok {
+		config.BatchSize = int(batchSize)
+	}
+	if batchTimeout, ok := updates["batchTimeout"].(float64); ok {
+		config.BatchTimeout = time.Duration(batchTimeout) * time.Second
+	}
+	if healthInterval, ok := updates["healthCheckInterval"].(float64); ok {
+		config.HealthCheckInterval = time.Duration(healthInterval) * time.Second
+	}
+	if logRequests, ok := updates["logRequests"].(bool); ok {
+		config.LogRequests = logRequests
+	}
+
+	// Note: Service restart may be required for some configuration changes to take effect
+	log.Printf("N8n configuration updated")
+	return nil
+}
+
+// GetActiveN8nRequests returns currently active n8n workflow requests
+func (a *App) GetActiveN8nRequests() ([]map[string]interface{}, error) {
+	if a.n8nIntegration == nil {
+		return nil, fmt.Errorf("n8n integration service not initialized")
+	}
+
+	activeRequests := a.n8nIntegration.GetActiveRequests()
+	result := make([]map[string]interface{}, len(activeRequests))
+
+	for i, request := range activeRequests {
+		result[i] = map[string]interface{}{
+			"id":             request.ID,
+			"jobId":          request.JobID,
+			"workflowName":   request.WorkflowName,
+			"priority":       request.Priority,
+			"status":         request.Status,
+			"createdAt":      request.CreatedAt,
+			"startedAt":      request.StartedAt,
+			"completedAt":    request.CompletedAt,
+			"retryCount":     request.RetryCount,
+			"maxRetries":     request.MaxRetries,
+			"lastError":      request.LastError,
+			"n8nExecutionId": request.N8nExecutionID,
+			"metadata":       request.Metadata,
+		}
+
+		// Include payload details
+		if request.Payload != nil {
+			result[i]["dealName"] = request.Payload.DealName
+			result[i]["triggerType"] = string(request.Payload.TriggerType)
+			result[i]["documentCount"] = len(request.Payload.FilePaths)
+		}
+	}
+
+	return result, nil
+}
+
+// GetN8nWorkflowStatus gets the status of a specific n8n workflow execution
+func (a *App) GetN8nWorkflowStatus(executionID string) (map[string]interface{}, error) {
+	if a.n8nIntegration == nil {
+		return nil, fmt.Errorf("n8n integration service not initialized")
+	}
+
+	if executionID == "" {
+		return nil, fmt.Errorf("execution ID cannot be empty")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	response, err := a.n8nIntegration.GetWorkflowStatus(ctx, executionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workflow status: %w", err)
+	}
+
+	return map[string]interface{}{
+		"executionId":  response.ExecutionID,
+		"status":       response.Status,
+		"data":         response.Data,
+		"error":        response.Error,
+		"startTime":    response.StartTime,
+		"endTime":      response.EndTime,
+		"duration":     response.Duration,
+		"workflowName": response.WorkflowName,
+		"triggerData":  response.TriggerData,
+	}, nil
+}
+
+// CancelN8nWorkflow cancels a running n8n workflow execution
+func (a *App) CancelN8nWorkflow(executionID string) error {
+	if a.n8nIntegration == nil {
+		return fmt.Errorf("n8n integration service not initialized")
+	}
+
+	if executionID == "" {
+		return fmt.Errorf("execution ID cannot be empty")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	return a.n8nIntegration.CancelWorkflow(ctx, executionID)
+}
+
+// RestartN8nIntegrationService restarts the n8n integration service
+func (a *App) RestartN8nIntegrationService() error {
+	if a.n8nIntegration == nil {
+		return fmt.Errorf("n8n integration service not initialized")
+	}
+
+	// Stop the service
+	if err := a.n8nIntegration.Stop(); err != nil {
+		log.Printf("Warning: Error stopping n8n integration service: %v", err)
+	}
+
+	// Wait a moment for graceful shutdown
+	time.Sleep(1 * time.Second)
+
+	// Start the service again
+	if err := a.n8nIntegration.Start(); err != nil {
+		return fmt.Errorf("failed to restart n8n integration service: %w", err)
+	}
+
+	log.Printf("N8n integration service restarted successfully")
+	return nil
+}
+
+// TestN8nConnection tests the connection to the n8n instance
+func (a *App) TestN8nConnection() (map[string]interface{}, error) {
+	if a.n8nIntegration == nil {
+		return nil, fmt.Errorf("n8n integration service not initialized")
+	}
+
+	start := time.Now()
+	err := a.n8nIntegration.checkN8nHealth()
+	duration := time.Since(start)
+
+	result := map[string]interface{}{
+		"timestamp":    time.Now().UnixMilli(),
+		"responseTime": duration.Milliseconds(),
+		"baseURL":      a.n8nIntegration.config.BaseURL,
+	}
+
+	if err != nil {
+		result["status"] = "failed"
+		result["error"] = err.Error()
+		return result, err
+	}
+
+	result["status"] = "success"
+	return result, nil
+}
+
+// GetN8nRequestHistory returns recent n8n request history for a job or deal
+func (a *App) GetN8nRequestHistory(jobID string, dealName string, limit int) ([]map[string]interface{}, error) {
+	if a.n8nIntegration == nil {
+		return nil, fmt.Errorf("n8n integration service not initialized")
+	}
+
+	if a.jobTracker == nil {
+		return nil, fmt.Errorf("job tracker not initialized")
+	}
+
+	var jobs []*JobInfo
+	var err error
+
+	if jobID != "" {
+		// Get specific job
+		if job, jobErr := a.jobTracker.GetJob(jobID); jobErr == nil {
+			jobs = []*JobInfo{job}
+		} else {
+			return nil, fmt.Errorf("job not found: %s", jobID)
+		}
+	} else if dealName != "" {
+		// Get jobs for specific deal
+		query := &JobQuery{
+			DealName:  dealName,
+			Limit:     limit,
+			SortBy:    "updatedAt",
+			SortOrder: "desc",
+		}
+		jobs, err = a.jobTracker.QueryJobs(query)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query jobs: %w", err)
+		}
+	} else {
+		// Get all recent jobs
+		query := &JobQuery{
+			Limit:     limit,
+			SortBy:    "updatedAt",
+			SortOrder: "desc",
+		}
+		jobs, err = a.jobTracker.QueryJobs(query)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query jobs: %w", err)
+		}
+	}
+
+	result := make([]map[string]interface{}, len(jobs))
+	for i, job := range jobs {
+		result[i] = map[string]interface{}{
+			"jobId":              job.JobID,
+			"dealName":           job.DealName,
+			"status":             string(job.Status),
+			"triggerType":        string(job.TriggerType),
+			"createdAt":          job.CreatedAt,
+			"updatedAt":          job.UpdatedAt,
+			"completedAt":        job.CompletedAt,
+			"documentCount":      job.TotalDocuments,
+			"processedDocuments": job.ProcessedDocuments,
+			"progress":           job.Progress,
+			"errors":             job.Errors,
+			"retryCount":         job.RetryCount,
+		}
+
+		// Include n8n-specific metadata if available
+		if job.Metadata != nil {
+			if n8nRequestID, ok := job.Metadata["n8n_request_id"]; ok {
+				result[i]["n8nRequestId"] = n8nRequestID
+			}
+			if workflowName, ok := job.Metadata["workflow_name"]; ok {
+				result[i]["workflowName"] = workflowName
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// Schema Validation Methods
+
+// ValidateWebhookPayload validates a webhook payload against its schema
+func (a *App) ValidateWebhookPayload(payload map[string]interface{}, schemaName string) (map[string]interface{}, error) {
+	if a.schemaValidator == nil {
+		return nil, fmt.Errorf("schema validator not initialized")
+	}
+
+	result, err := a.schemaValidator.ValidatePayload(payload, schemaName)
+	if err != nil {
+		return nil, fmt.Errorf("validation failed: %w", err)
+	}
+
+	return map[string]interface{}{
+		"valid":          result.Valid,
+		"errors":         result.Errors,
+		"warnings":       result.Warnings,
+		"schemaUsed":     result.SchemaUsed,
+		"validationTime": result.ValidationTime,
+		"payloadSize":    result.PayloadSize,
+		"schemaVersion":  result.SchemaVersion,
+	}, nil
+}
+
+// GetWebhookSchemas returns a list of all available webhook schemas
+func (a *App) GetWebhookSchemas() ([]map[string]interface{}, error) {
+	if a.schemaValidator == nil {
+		return nil, fmt.Errorf("schema validator not initialized")
+	}
+
+	schemaNames := a.schemaValidator.ListSchemas()
+	schemas := make([]map[string]interface{}, len(schemaNames))
+
+	for i, name := range schemaNames {
+		info, err := a.schemaValidator.GetSchemaInfo(name)
+		if err != nil {
+			continue // Skip schemas that can't be retrieved
+		}
+
+		schemas[i] = map[string]interface{}{
+			"schemaName":    info.SchemaName,
+			"schemaVersion": info.SchemaVersion,
+			"description":   info.Description,
+			"lastUpdated":   info.LastUpdated,
+		}
+	}
+
+	return schemas, nil
+}
+
+// GetWebhookSchemaDetails returns detailed information about a specific schema
+func (a *App) GetWebhookSchemaDetails(schemaName string) (map[string]interface{}, error) {
+	if a.schemaValidator == nil {
+		return nil, fmt.Errorf("schema validator not initialized")
+	}
+
+	schema, err := a.schemaValidator.GetSchema(schemaName)
+	if err != nil {
+		return nil, fmt.Errorf("schema not found: %w", err)
+	}
+
+	return map[string]interface{}{
+		"schemaName":           schema.SchemaName,
+		"type":                 schema.Type,
+		"title":                schema.Title,
+		"description":          schema.Description,
+		"version":              schema.Version,
+		"properties":           schema.Properties,
+		"required":             schema.Required,
+		"additionalProperties": schema.AdditionalProperties,
+		"examples":             schema.Examples,
+		"lastUpdated":          schema.LastUpdated,
+	}, nil
+}
+
+// UpdateSchemaValidatorSettings updates schema validator configuration
+func (a *App) UpdateSchemaValidatorSettings(settings map[string]interface{}) error {
+	if a.schemaValidator == nil {
+		return fmt.Errorf("schema validator not initialized")
+	}
+
+	// Update strict mode if specified
+	if strictMode, ok := settings["strictMode"].(bool); ok {
+		a.schemaValidator.SetStrictMode(strictMode)
+	}
+
+	log.Printf("Schema validator settings updated")
+	return nil
+}
+
+// GetSchemaValidatorInfo returns information about the schema validator
+func (a *App) GetSchemaValidatorInfo() (map[string]interface{}, error) {
+	if a.schemaValidator == nil {
+		return nil, fmt.Errorf("schema validator not initialized")
+	}
+
+	apiVersion := a.schemaValidator.GetAPIVersion()
+	compatibilityInfo := a.schemaValidator.GetCompatibilityInfo()
+	schemaCount := len(a.schemaValidator.ListSchemas())
+
+	return map[string]interface{}{
+		"apiVersion": map[string]interface{}{
+			"major": apiVersion.Major,
+			"minor": apiVersion.Minor,
+			"patch": apiVersion.Patch,
+			"label": apiVersion.Label,
+		},
+		"schemaCount": schemaCount,
+		"compatibility": map[string]interface{}{
+			"currentVersion":     compatibilityInfo.CurrentVersion,
+			"supportedVersions":  compatibilityInfo.SupportedVersions,
+			"deprecatedVersions": compatibilityInfo.DeprecatedVersions,
+			"minimumVersion":     compatibilityInfo.MinimumVersion,
+		},
+	}, nil
+}
+
+// ValidateDocumentPayloadSchema validates a document webhook payload against its schema
+func (a *App) ValidateDocumentPayloadSchema(payload map[string]interface{}) (map[string]interface{}, error) {
+	return a.ValidateWebhookPayload(payload, "document-webhook-payload")
+}
+
+// ValidateResultPayload validates a webhook result payload specifically
+func (a *App) ValidateResultPayload(payload map[string]interface{}) (map[string]interface{}, error) {
+	return a.ValidateWebhookPayload(payload, "webhook-result-payload")
+}
+
+// ValidateErrorPayload validates an error handling payload specifically
+func (a *App) ValidateErrorPayload(payload map[string]interface{}) (map[string]interface{}, error) {
+	return a.ValidateWebhookPayload(payload, "error-handling-payload")
+}
+
+// ValidateCorrectionPayload validates a user correction payload specifically
+func (a *App) ValidateCorrectionPayload(payload map[string]interface{}) (map[string]interface{}, error) {
+	return a.ValidateWebhookPayload(payload, "user-correction-payload")
+}
+
+// ValidateBatchPayload validates a batch processing payload specifically
+func (a *App) ValidateBatchPayload(payload map[string]interface{}) (map[string]interface{}, error) {
+	return a.ValidateWebhookPayload(payload, "batch-processing-payload")
+}
+
+// ValidateHealthCheckPayload validates a health check payload specifically
+func (a *App) ValidateHealthCheckPayload(payload map[string]interface{}) (map[string]interface{}, error) {
+	return a.ValidateWebhookPayload(payload, "health-check-payload")
+}
+
+// CreateSamplePayload creates a sample payload for testing a specific schema
+func (a *App) CreateSamplePayload(schemaName string, dealName string) (map[string]interface{}, error) {
+	if a.schemaValidator == nil {
+		return nil, fmt.Errorf("schema validator not initialized")
+	}
+
+	now := time.Now().UnixMilli()
+	jobID := fmt.Sprintf("job_%d_%s", now, dealName)
+
+	switch schemaName {
+	case "document-webhook-payload":
+		return map[string]interface{}{
+			"dealName":       dealName,
+			"filePaths":      []string{"/path/to/document1.pdf", "/path/to/document2.docx"},
+			"triggerType":    "user_button",
+			"workflowType":   "document-analysis",
+			"jobId":          jobID,
+			"priority":       2,
+			"timestamp":      now,
+			"retryCount":     0,
+			"maxRetries":     3,
+			"timeoutSeconds": 300,
+			"metadata": map[string]interface{}{
+				"source": "frontend",
+			},
+		}, nil
+
+	case "webhook-result-payload":
+		return map[string]interface{}{
+			"jobId":              jobID,
+			"dealName":           dealName,
+			"workflowType":       "document-analysis",
+			"status":             "completed",
+			"processedDocuments": 2,
+			"totalDocuments":     2,
+			"averageConfidence":  0.85,
+			"processingTimeMs":   15000,
+			"startTime":          now - 15000,
+			"timestamp":          now,
+			"templatesUpdated":   []string{"template1.xlsx", "template2.xlsx"},
+		}, nil
+
+	case "error-handling-payload":
+		return map[string]interface{}{
+			"originalJobId":  jobID,
+			"errorJobId":     fmt.Sprintf("error_%d_%s", now, dealName),
+			"dealName":       dealName,
+			"errorType":      "processing_timeout",
+			"retryAttempt":   1,
+			"maxRetries":     3,
+			"retryStrategy":  "exponential",
+			"recoveryAction": "retry",
+			"timestamp":      now,
+		}, nil
+
+	case "user-correction-payload":
+		return map[string]interface{}{
+			"correctionId":  fmt.Sprintf("corr_%d_%s", now, dealName),
+			"originalJobId": jobID,
+			"dealName":      dealName,
+			"templatePath":  "/templates/deal_template.xlsx",
+			"corrections": []map[string]interface{}{
+				{
+					"fieldName":          "dealValue",
+					"originalValue":      "1000000",
+					"correctedValue":     "1200000",
+					"originalConfidence": 0.75,
+					"userConfidence":     0.95,
+					"correctionReason":   "wrong_extraction",
+					"notes":              "Extracted from wrong section",
+				},
+			},
+			"correctionType": "manual",
+			"applyToSimilar": true,
+			"confidence":     0.95,
+			"timestamp":      now,
+		}, nil
+
+	case "batch-processing-payload":
+		return map[string]interface{}{
+			"batchId":   fmt.Sprintf("batch_%d_%s", now, dealName),
+			"dealName":  dealName,
+			"batchType": "deal_analysis",
+			"items": []map[string]interface{}{
+				{
+					"itemId":   "item1",
+					"itemType": "document",
+					"itemPath": "/documents/doc1.pdf",
+				},
+				{
+					"itemId":   "item2",
+					"itemType": "document",
+					"itemPath": "/documents/doc2.docx",
+				},
+			},
+			"priority":  2,
+			"timestamp": now,
+		}, nil
+
+	case "health-check-payload":
+		return map[string]interface{}{
+			"checkId":    fmt.Sprintf("health_%d", now),
+			"checkType":  "system",
+			"components": []string{"database", "ai_service", "file_system"},
+			"timestamp":  now,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown schema: %s", schemaName)
+	}
+}
+
+// TestSchemaValidation performs a comprehensive test of schema validation
+func (a *App) TestSchemaValidation() (map[string]interface{}, error) {
+	if a.schemaValidator == nil {
+		return nil, fmt.Errorf("schema validator not initialized")
+	}
+
+	testResults := make(map[string]interface{})
+	schemas := a.schemaValidator.ListSchemas()
+
+	for _, schemaName := range schemas {
+		// Create sample payload
+		samplePayload, err := a.CreateSamplePayload(schemaName, "TestDeal")
+		if err != nil {
+			testResults[schemaName] = map[string]interface{}{
+				"error": fmt.Sprintf("Failed to create sample: %v", err),
+			}
+			continue
+		}
+
+		// Validate the sample
+		validationResult, err := a.ValidateWebhookPayload(samplePayload, schemaName)
+		if err != nil {
+			testResults[schemaName] = map[string]interface{}{
+				"error": fmt.Sprintf("Validation failed: %v", err),
+			}
+			continue
+		}
+
+		testResults[schemaName] = map[string]interface{}{
+			"valid":          validationResult["valid"],
+			"errorCount":     len(validationResult["errors"].([]ValidationError)),
+			"warningCount":   len(validationResult["warnings"].([]ValidationError)),
+			"validationTime": validationResult["validationTime"],
+		}
+	}
+
+	return map[string]interface{}{
+		"timestamp":   time.Now().UnixMilli(),
+		"schemaCount": len(schemas),
+		"results":     testResults,
+	}, nil
+}
+
+// Authentication Management Methods
+
+// GenerateAPIKey generates a new API key for webhook authentication
+func (a *App) GenerateAPIKey(req map[string]interface{}) (map[string]interface{}, error) {
+	if a.authManager == nil {
+		return nil, fmt.Errorf("authentication manager not initialized")
+	}
+
+	// Convert request map to KeyGenerationRequest
+	keyReq := &KeyGenerationRequest{}
+
+	if name, ok := req["name"].(string); ok {
+		keyReq.Name = name
+	}
+	if description, ok := req["description"].(string); ok {
+		keyReq.Description = description
+	}
+	if permissions, ok := req["permissions"].([]interface{}); ok {
+		for _, p := range permissions {
+			if perm, ok := p.(string); ok {
+				keyReq.Permissions = append(keyReq.Permissions, perm)
+			}
+		}
+	}
+	if expirationDays, ok := req["expirationDays"].(float64); ok {
+		keyReq.ExpirationDays = int(expirationDays)
+	}
+	if rateLimitTier, ok := req["rateLimitTier"].(string); ok {
+		keyReq.RateLimitTier = rateLimitTier
+	}
+
+	result, err := a.authManager.GenerateAPIKey(keyReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate API key: %w", err)
+	}
+
+	return map[string]interface{}{
+		"keyId":         result.KeyID,
+		"apiKey":        result.APIKey, // Only returned here
+		"name":          result.KeyInfo.Name,
+		"description":   result.KeyInfo.Description,
+		"permissions":   result.KeyInfo.Permissions,
+		"expiresAt":     result.ExpiresAt,
+		"generatedAt":   result.GeneratedAt,
+		"isActive":      result.KeyInfo.IsActive,
+		"rateLimitTier": result.KeyInfo.RateLimitTier,
+	}, nil
+}
+
+// ListAPIKeys returns a list of all API keys (without the actual key values)
+func (a *App) ListAPIKeys() ([]map[string]interface{}, error) {
+	if a.authManager == nil {
+		return nil, fmt.Errorf("authentication manager not initialized")
+	}
+
+	keys, err := a.authManager.ListAPIKeys()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list API keys: %w", err)
+	}
+
+	result := make([]map[string]interface{}, len(keys))
+	for i, key := range keys {
+		result[i] = map[string]interface{}{
+			"keyId":         key.KeyID,
+			"name":          key.Name,
+			"description":   key.Description,
+			"permissions":   key.Permissions,
+			"createdAt":     key.CreatedAt,
+			"expiresAt":     key.ExpiresAt,
+			"lastUsed":      key.LastUsed,
+			"usageCount":    key.UsageCount,
+			"isActive":      key.IsActive,
+			"rateLimitTier": key.RateLimitTier,
+		}
+	}
+
+	return result, nil
+}
+
+// RevokeAPIKey revokes an API key
+func (a *App) RevokeAPIKey(keyID string, reason string) error {
+	if a.authManager == nil {
+		return fmt.Errorf("authentication manager not initialized")
+	}
+
+	return a.authManager.RevokeAPIKey(keyID, reason)
+}
+
+// GetAPIKeyInfo returns information about a specific API key
+func (a *App) GetAPIKeyInfo(keyID string) (map[string]interface{}, error) {
+	if a.authManager == nil {
+		return nil, fmt.Errorf("authentication manager not initialized")
+	}
+
+	key, err := a.authManager.GetAPIKeyInfo(keyID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get API key info: %w", err)
+	}
+
+	return map[string]interface{}{
+		"keyId":         key.KeyID,
+		"name":          key.Name,
+		"description":   key.Description,
+		"permissions":   key.Permissions,
+		"createdAt":     key.CreatedAt,
+		"expiresAt":     key.ExpiresAt,
+		"lastUsed":      key.LastUsed,
+		"usageCount":    key.UsageCount,
+		"isActive":      key.IsActive,
+		"rateLimitTier": key.RateLimitTier,
+	}, nil
+}
+
+// CreateWebhookAuthPair generates a matched API key and HMAC secret for webhook communication
+func (a *App) CreateWebhookAuthPair(name string, description string) (map[string]interface{}, error) {
+	if a.authManager == nil {
+		return nil, fmt.Errorf("authentication manager not initialized")
+	}
+
+	// Generate API key
+	keyReq := &KeyGenerationRequest{
+		Name:           name,
+		Description:    description + " (webhook communication)",
+		Permissions:    []string{"webhook:receive", "webhook:send", "documents:process"},
+		RateLimitTier:  "premium",
+		ExpirationDays: 365, // 1 year
+	}
+
+	result, err := a.authManager.GenerateAPIKey(keyReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate webhook auth pair: %w", err)
+	}
+
+	// Generate HMAC secret
+	secretBytes := make([]byte, 32)
+	if _, err := rand.Read(secretBytes); err != nil {
+		return nil, fmt.Errorf("failed to generate HMAC secret: %w", err)
+	}
+	hmacSecret := hex.EncodeToString(secretBytes)
+
+	return map[string]interface{}{
+		"keyId":       result.KeyID,
+		"apiKey":      result.APIKey,
+		"hmacSecret":  hmacSecret,
+		"name":        result.KeyInfo.Name,
+		"description": result.KeyInfo.Description,
+		"expiresAt":   result.ExpiresAt,
+		"generatedAt": result.GeneratedAt,
+		"instructions": map[string]string{
+			"apiKey":     "Use this as the X-API-Key header in webhook requests",
+			"hmacSecret": "Use this to generate HMAC-SHA256 signatures for request validation",
+			"algorithm":  "HMAC-SHA256",
+			"encoding":   "hexadecimal",
+		},
+	}, nil
+}
+
+// ValidateHMACSignature validates an HMAC signature for a webhook request
+func (a *App) ValidateHMACSignature(payload string, signature string, secret string) (map[string]interface{}, error) {
+	// Create HMAC signature
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(payload))
+	expectedSignature := hex.EncodeToString(mac.Sum(nil))
+
+	// Compare signatures
+	isValid := hmac.Equal([]byte(signature), []byte(expectedSignature))
+
+	return map[string]interface{}{
+		"isValid":           isValid,
+		"expectedSignature": expectedSignature,
+		"providedSignature": signature,
+		"algorithm":         "HMAC-SHA256",
+		"timestamp":         time.Now().UnixMilli(),
+	}, nil
+}
+
+// GenerateHMACSignature generates an HMAC signature for a payload
+func (a *App) GenerateHMACSignature(payload string, secret string) (map[string]interface{}, error) {
+	// Create HMAC signature
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(payload))
+	signature := hex.EncodeToString(mac.Sum(nil))
+
+	return map[string]interface{}{
+		"signature": signature,
+		"payload":   payload,
+		"algorithm": "HMAC-SHA256",
+		"encoding":  "hexadecimal",
+		"timestamp": time.Now().UnixMilli(),
+	}, nil
+}
+
+// GetAuthManagerConfiguration returns the current auth manager configuration
+func (a *App) GetAuthManagerConfiguration() (map[string]interface{}, error) {
+	if a.authManager == nil {
+		return nil, fmt.Errorf("authentication manager not initialized")
+	}
+
+	return map[string]interface{}{
+		"initialized": true,
+		"features": map[string]bool{
+			"apiKeyGeneration": true,
+			"hmacSignatures":   true,
+			"rateLimiting":     true,
+			"auditLogging":     true,
+			"keyRotation":      false, // Not fully implemented
+			"ipWhitelisting":   true,
+		},
+		"supportedTiers": []string{"basic", "premium", "unlimited"},
+		"supportedPermissions": []string{
+			"webhook:receive",
+			"webhook:send",
+			"documents:process",
+			"jobs:query",
+			"admin:manage",
+		},
+	}, nil
 }

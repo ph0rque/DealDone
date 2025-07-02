@@ -1,0 +1,162 @@
+{
+  "name": "DealDone Document Processor",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "dealdone-document-analysis",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "DealDone Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "dealdone-analysis-trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\nconst requiredFields = ['dealName', 'filePaths', 'triggerType', 'jobId', 'timestamp'];\nconst missingFields = requiredFields.filter(field => !payload[field]);\nif (missingFields.length > 0) {\n  throw new Error(`Missing required fields: ${missingFields.join(', ')}`);\n}\nreturn {\n  ...payload,\n  processedAt: Date.now(),\n  workflowExecutionId: $workflow.id,\n  processingStatus: 'validated'\n};"
+      },
+      "id": "payload-validator",
+      "name": "Payload Validator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/analyze-document",
+        "options": {
+          "timeout": 60000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"filePaths\": {{ $json.filePaths }}, \"dealName\": \"{{ $json.dealName }}\", \"jobId\": \"{{ $json.jobId }}\", \"analysisDepth\": \"comprehensive\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "dealdone-api-key"
+            }
+          ]
+        }
+      },
+      "id": "document-processor",
+      "name": "Document Processor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\nconst analysisResult = payload.body || payload;\nconst finalResult = {\n  jobId: payload.jobId,\n  dealName: payload.dealName,\n  workflowType: 'document-analysis',\n  status: 'completed',\n  processedDocuments: analysisResult.processedDocuments || 0,\n  templatesUpdated: analysisResult.templatesUpdated || [],\n  averageConfidence: analysisResult.averageConfidence || 0.5,\n  processingTimeMs: Date.now() - payload.processedAt,\n  startTime: payload.processedAt,\n  endTime: Date.now(),\n  results: analysisResult,\n  timestamp: Date.now()\n};\nreturn finalResult;"
+      },
+      "id": "result-processor",
+      "name": "Result Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8080/webhook/results",
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "dealdone-webhook-key"
+            },
+            {
+              "name": "X-Timestamp",
+              "value": "={{ Math.floor(Date.now() / 1000) }}"
+            }
+          ]
+        }
+      },
+      "id": "webhook-response",
+      "name": "DealDone Webhook Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "DealDone Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Payload Validator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Payload Validator": {
+      "main": [
+        [
+          {
+            "node": "Document Processor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Document Processor": {
+      "main": [
+        [
+          {
+            "node": "Result Processor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Result Processor": {
+      "main": [
+        [
+          {
+            "node": "DealDone Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1.0.0",
+  "id": "dealdone-document-processor",
+  "tags": [
+    {
+      "id": "dealdone",
+      "name": "DealDone"
+    }
+  ]
+} 
