@@ -51,6 +51,7 @@ type App struct {
 	queueManager            *QueueManager
 	conflictResolver        *ConflictResolver
 	workflowRecovery        *WorkflowRecoveryService
+	correctionProcessor     *CorrectionProcessor
 }
 
 // NewApp creates a new App application struct
@@ -260,6 +261,23 @@ func (a *App) startup(ctx context.Context) {
 
 	workflowNotifier := &AppErrorNotifier{logger: appLogger}
 	a.workflowRecovery = NewWorkflowRecoveryService(workflowConfig, appLogger, workflowNotifier)
+
+	// Initialize Correction Processor
+	correctionConfig := CorrectionDetectionConfig{
+		MonitoringInterval:         30 * time.Second,
+		MinLearningWeight:          0.1,
+		PatternConfidenceThreshold: 0.6,
+		MaxPatternAge:              60 * 24 * time.Hour, // 60 days
+		MinFrequencyForPattern:     3,
+		EnableRAGLearning:          true,
+		LearningRateDecay:          0.95,
+		ValidationThreshold:        0.7,
+		StoragePath:                filepath.Join(configService.GetDealDoneRoot(), "data", "corrections"),
+		BackupInterval:             10 * time.Minute,
+		MaxCorrectionHistory:       1000,
+	}
+
+	a.correctionProcessor = NewCorrectionProcessor(correctionConfig, &AppLogger{})
 }
 
 // AppLogger implements the Logger interface for ConflictResolver
@@ -3456,4 +3474,222 @@ func getTotalFromStats(stats map[string]int) int {
 		total += count
 	}
 	return total
+}
+
+// Correction Processor API Methods
+
+// DetectUserCorrection records a user correction for learning
+func (a *App) DetectUserCorrection(correction *CorrectionEntry) error {
+	if a.correctionProcessor == nil {
+		return fmt.Errorf("correction processor not initialized")
+	}
+
+	return a.correctionProcessor.DetectCorrection(correction)
+}
+
+// MonitorTemplateDataChanges detects changes in template data for learning
+func (a *App) MonitorTemplateDataChanges(dealID, templateID string, beforeData, afterData map[string]interface{}, userID string) error {
+	if a.correctionProcessor == nil {
+		return fmt.Errorf("correction processor not initialized")
+	}
+
+	return a.correctionProcessor.MonitorTemplateChanges(dealID, templateID, beforeData, afterData, userID)
+}
+
+// GetLearningInsights returns insights from the correction learning system
+func (a *App) GetLearningInsights() (*LearningInsights, error) {
+	if a.correctionProcessor == nil {
+		return nil, fmt.Errorf("correction processor not initialized")
+	}
+
+	return a.correctionProcessor.GetLearningInsights()
+}
+
+// ApplyLearningToDocument applies learned patterns to new document processing
+func (a *App) ApplyLearningToDocument(documentData map[string]interface{}, context ProcessingContext) (*ProcessingResult, error) {
+	if a.correctionProcessor == nil {
+		return nil, fmt.Errorf("correction processor not initialized")
+	}
+
+	return a.correctionProcessor.ApplyLearning(documentData, context)
+}
+
+// GetCorrectionHistory returns the history of corrections for a specific deal or field
+func (a *App) GetCorrectionHistory(filters CorrectionHistoryFilters) ([]*CorrectionEntry, error) {
+	if a.correctionProcessor == nil {
+		return nil, fmt.Errorf("correction processor not initialized")
+	}
+
+	a.correctionProcessor.mutex.RLock()
+	defer a.correctionProcessor.mutex.RUnlock()
+
+	var results []*CorrectionEntry
+
+	for _, correction := range a.correctionProcessor.corrections {
+		if filters.DealID != "" && correction.DealID != filters.DealID {
+			continue
+		}
+		if filters.FieldName != "" && correction.FieldName != filters.FieldName {
+			continue
+		}
+		if filters.UserID != "" && correction.UserID != filters.UserID {
+			continue
+		}
+		if filters.CorrectionType != "" && correction.CorrectionType != CorrectionType(filters.CorrectionType) {
+			continue
+		}
+		if !filters.StartDate.IsZero() && correction.Timestamp.Before(filters.StartDate) {
+			continue
+		}
+		if !filters.EndDate.IsZero() && correction.Timestamp.After(filters.EndDate) {
+			continue
+		}
+
+		results = append(results, correction)
+	}
+
+	return results, nil
+}
+
+// GetLearningPatterns returns active learning patterns
+func (a *App) GetLearningPatterns() (map[string]*LearningPattern, error) {
+	if a.correctionProcessor == nil {
+		return nil, fmt.Errorf("correction processor not initialized")
+	}
+
+	a.correctionProcessor.mutex.RLock()
+	defer a.correctionProcessor.mutex.RUnlock()
+
+	patterns := make(map[string]*LearningPattern)
+	for key, pattern := range a.correctionProcessor.learningModel.ActivePatterns {
+		if pattern.IsActive {
+			patterns[key] = pattern
+		}
+	}
+
+	return patterns, nil
+}
+
+// UpdateLearningPattern allows manual updates to learning patterns
+func (a *App) UpdateLearningPattern(patternID string, updates PatternUpdate) error {
+	if a.correctionProcessor == nil {
+		return fmt.Errorf("correction processor not initialized")
+	}
+
+	a.correctionProcessor.mutex.Lock()
+	defer a.correctionProcessor.mutex.Unlock()
+
+	pattern, exists := a.correctionProcessor.learningModel.ActivePatterns[patternID]
+	if !exists {
+		return fmt.Errorf("pattern not found: %s", patternID)
+	}
+
+	// Apply updates
+	if updates.IsActiveSet {
+		pattern.IsActive = updates.IsActive
+	}
+	if updates.ConfidenceSet {
+		pattern.Confidence = updates.Confidence
+	}
+	if updates.SuccessRateSet {
+		pattern.SuccessRate = updates.SuccessRate
+	}
+
+	pattern.UpdatedAt = time.Now()
+
+	return nil
+}
+
+// GetCorrectionStatistics returns statistics about corrections and learning
+func (a *App) GetCorrectionStatistics() (*CorrectionStatistics, error) {
+	if a.correctionProcessor == nil {
+		return nil, fmt.Errorf("correction processor not initialized")
+	}
+
+	a.correctionProcessor.mutex.RLock()
+	defer a.correctionProcessor.mutex.RUnlock()
+
+	stats := &CorrectionStatistics{
+		TotalCorrections:    len(a.correctionProcessor.corrections),
+		TotalActivePatterns: len(a.correctionProcessor.learningModel.ActivePatterns),
+		LearningVersion:     a.correctionProcessor.learningModel.Version,
+		LastUpdated:         a.correctionProcessor.learningModel.LastUpdated,
+		CorrectionsByType:   make(map[string]int),
+		CorrectionsByField:  make(map[string]int),
+		CorrectionsByUser:   make(map[string]int),
+		PerformanceMetrics:  a.correctionProcessor.learningModel.PerformanceMetrics,
+	}
+
+	// Calculate statistics
+	for _, correction := range a.correctionProcessor.corrections {
+		stats.CorrectionsByType[string(correction.CorrectionType)]++
+		if correction.FieldName != "" {
+			stats.CorrectionsByField[correction.FieldName]++
+		}
+		stats.CorrectionsByUser[correction.UserID]++
+	}
+
+	// Calculate effectiveness
+	activePatterns := 0
+	totalEffectiveness := 0.0
+	for _, pattern := range a.correctionProcessor.learningModel.ActivePatterns {
+		if pattern.IsActive {
+			activePatterns++
+			totalEffectiveness += pattern.SuccessRate
+		}
+	}
+
+	if activePatterns > 0 {
+		stats.LearningEffectiveness = totalEffectiveness / float64(activePatterns)
+	}
+
+	return stats, nil
+}
+
+// ForceLearningUpdate manually triggers learning model updates
+func (a *App) ForceLearningUpdate() error {
+	if a.correctionProcessor == nil {
+		return fmt.Errorf("correction processor not initialized")
+	}
+
+	// Trigger pattern updates
+	a.correctionProcessor.patternDetector.UpdatePatterns()
+
+	// Trigger learning effectiveness evaluation
+	a.correctionProcessor.evaluateLearningEffectiveness()
+
+	// Save state
+	return a.correctionProcessor.saveState()
+}
+
+// Additional types for Correction Processor API
+
+type CorrectionHistoryFilters struct {
+	DealID         string    `json:"deal_id,omitempty"`
+	FieldName      string    `json:"field_name,omitempty"`
+	UserID         string    `json:"user_id,omitempty"`
+	CorrectionType string    `json:"correction_type,omitempty"`
+	StartDate      time.Time `json:"start_date,omitempty"`
+	EndDate        time.Time `json:"end_date,omitempty"`
+}
+
+type PatternUpdate struct {
+	IsActive       bool               `json:"is_active,omitempty"`
+	IsActiveSet    bool               `json:"-"`
+	Confidence     LearningConfidence `json:"confidence,omitempty"`
+	ConfidenceSet  bool               `json:"-"`
+	SuccessRate    float64            `json:"success_rate,omitempty"`
+	SuccessRateSet bool               `json:"-"`
+}
+
+type CorrectionStatistics struct {
+	TotalCorrections      int                `json:"total_corrections"`
+	TotalActivePatterns   int                `json:"total_active_patterns"`
+	LearningVersion       string             `json:"learning_version"`
+	LastUpdated           time.Time          `json:"last_updated"`
+	CorrectionsByType     map[string]int     `json:"corrections_by_type"`
+	CorrectionsByField    map[string]int     `json:"corrections_by_field"`
+	CorrectionsByUser     map[string]int     `json:"corrections_by_user"`
+	LearningEffectiveness float64            `json:"learning_effectiveness"`
+	PerformanceMetrics    PerformanceMetrics `json:"performance_metrics"`
 }
