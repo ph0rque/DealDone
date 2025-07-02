@@ -1,0 +1,195 @@
+{
+  "name": "Template Population with Formula Preservation",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Template Population Engine\nconst payload = $json;\nconst doc = payload.currentDocument;\nconst mappingResults = doc.fieldMapping.results;\n\n// Validate readiness for population\nif (!mappingResults.readyForPopulation) {\n  throw new Error(`Document not ready for population. Quality score: ${mappingResults.qualityAnalysis.overallScore}`);\n}\n\n// Determine population strategy\nfunction determinePopulationStrategy(doc, mappingResults) {\n  const qualityScore = mappingResults.qualityAnalysis.overallScore;\n  const confidenceLevel = doc.finalClassification.confidence;\n  \n  if (qualityScore >= 0.9 && confidenceLevel >= 0.9) {\n    return 'automated-high-confidence';\n  } else if (qualityScore >= 0.8 && confidenceLevel >= 0.8) {\n    return 'automated-with-validation';\n  } else if (qualityScore >= 0.6) {\n    return 'semi-automated-review-required';\n  } else {\n    return 'manual-assisted';\n  }\n}\n\nconst populationParams = {\n  templateInfo: {\n    templateId: doc.templateDiscovery.results.primaryTemplate.templateId,\n    templateName: doc.templateDiscovery.results.primaryTemplate.name,\n    templateType: 'excel'\n  },\n  fieldMappings: mappingResults.mappings,\n  populationStrategy: determinePopulationStrategy(doc, mappingResults),\n  formulaPreservation: {\n    enabled: true,\n    preserveCalculations: true,\n    maintainReferences: true,\n    backupOriginal: true\n  },\n  contextData: {\n    dealName: payload.dealName,\n    documentPath: doc.filePath,\n    jobId: payload.jobId\n  }\n};\n\nreturn {\n  ...payload,\n  currentDocument: {\n    ...doc,\n    templatePopulation: {\n      params: populationParams,\n      status: 'population-initiated',\n      timestamp: Date.now()\n    }\n  }\n};"
+      },
+      "id": "template-population-engine",
+      "name": "Template Population Engine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "id": "automated",
+              "leftValue": "={{ $json.currentDocument.templatePopulation.params.populationStrategy }}",
+              "rightValue": "automated-high-confidence",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ]
+        }
+      },
+      "id": "population-strategy-router",
+      "name": "Population Strategy Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/populate-template-automated",
+        "options": { "timeout": 120000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"populationParams\": {{ $json.currentDocument.templatePopulation.params }}, \"dealName\": \"{{ $json.dealName }}\", \"jobId\": \"{{ $json.jobId }}\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "automated-population",
+      "name": "Automated Population",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [600, 250]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/populate-template-assisted",
+        "options": { "timeout": 150000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"populationParams\": {{ $json.currentDocument.templatePopulation.params }}, \"dealName\": \"{{ $json.dealName }}\", \"jobId\": \"{{ $json.jobId }}\", \"requiresReview\": true}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "assisted-population",
+      "name": "Assisted Population",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [600, 350]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Population Results Processor\nconst payload = $json;\nconst result = payload.body || payload;\nconst doc = payload.currentDocument;\n\nconst populationAnalysis = {\n  fieldsPopulated: result.fieldsPopulated || 0,\n  totalFields: result.totalFields || 0,\n  populationCompleteness: (result.fieldsPopulated || 0) / Math.max(result.totalFields || 1, 1),\n  formulasPreserved: result.formulaValidation?.formulasPreserved || 0,\n  formulasTotal: result.formulaValidation?.formulasTotal || 0,\n  formulaPreservationRate: (result.formulaValidation?.formulasPreserved || 0) / Math.max(result.formulaValidation?.formulasTotal || 1, 1)\n};\n\nconst overallQualityScore = (\n  populationAnalysis.populationCompleteness * 0.6 +\n  populationAnalysis.formulaPreservationRate * 0.4\n);\n\nconst populationSuccess = {\n  isHighQuality: overallQualityScore >= 0.9,\n  isAcceptable: overallQualityScore >= 0.7,\n  requiresReview: overallQualityScore < 0.7\n};\n\nconst populationResults = {\n  populatedTemplate: result.populatedTemplate || {},\n  populationAnalysis,\n  populationSuccess,\n  overallQualityScore,\n  conflicts: result.conflicts || [],\n  formulaValidation: result.formulaValidation || {}\n};\n\nreturn {\n  ...payload,\n  currentDocument: {\n    ...doc,\n    templatePopulation: {\n      ...doc.templatePopulation,\n      results: populationResults,\n      status: 'population-completed'\n    }\n  }\n};"
+      },
+      "id": "population-processor",
+      "name": "Population Results Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "id": "high-quality",
+              "leftValue": "={{ $json.currentDocument.templatePopulation.results.populationSuccess.isAcceptable }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true" }
+            }
+          ]
+        }
+      },
+      "id": "quality-check",
+      "name": "Quality Validation Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/validate-populated-template",
+        "options": { "timeout": 60000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"templateData\": {{ $json.currentDocument.templatePopulation.results.populatedTemplate }}, \"dealName\": \"{{ $json.dealName }}\", \"jobId\": \"{{ $json.jobId }}\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "template-validation",
+      "name": "Template Validation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1200, 250]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Issues Handler\nconst payload = $json;\nconst doc = payload.currentDocument;\n\nconst issues = {\n  conflicts: doc.templatePopulation.results.conflicts || [],\n  requiresReview: doc.templatePopulation.results.populationSuccess.requiresReview,\n  qualityScore: doc.templatePopulation.results.overallQualityScore\n};\n\nconst reviewPlan = {\n  reviewType: 'quality-improvement',\n  priority: issues.requiresReview ? 'high' : 'medium',\n  estimatedTime: issues.conflicts.length * 2 + 10\n};\n\nreturn {\n  ...payload,\n  currentDocument: {\n    ...doc,\n    templatePopulation: {\n      ...doc.templatePopulation,\n      issues,\n      reviewPlan,\n      status: 'requires-review'\n    }\n  },\n  requiresManualReview: true\n};"
+      },
+      "id": "issues-handler",
+      "name": "Issues Handler",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 350]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Template Finalization\nconst payload = $json;\nconst result = payload.body || payload;\nconst doc = payload.currentDocument;\n\nconst validationResults = {\n  validationPassed: result.validationPassed || false,\n  validationScore: result.validationScore || 0,\n  formulaValidation: result.formulaValidation || {},\n  dataIntegrity: result.dataIntegrity || {}\n};\n\nconst finalStatus = {\n  isReady: validationResults.validationPassed,\n  needsFixes: !validationResults.validationPassed\n};\n\nreturn {\n  ...payload,\n  currentDocument: {\n    ...doc,\n    templatePopulation: {\n      ...doc.templatePopulation,\n      validation: validationResults,\n      finalStatus,\n      status: finalStatus.isReady ? 'template-ready' : 'requires-fixes'\n    }\n  },\n  populationComplete: true\n};"
+      },
+      "id": "template-finalization",
+      "name": "Template Finalization",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 250]
+    }
+  ],
+  "connections": {
+    "Template Population Engine": {
+      "main": [
+        [{ "node": "Population Strategy Router", "type": "main", "index": 0 }]
+      ]
+    },
+    "Population Strategy Router": {
+      "main": [
+        [{ "node": "Automated Population", "type": "main", "index": 0 }],
+        [{ "node": "Assisted Population", "type": "main", "index": 0 }]
+      ]
+    },
+    "Automated Population": {
+      "main": [
+        [{ "node": "Population Results Processor", "type": "main", "index": 0 }]
+      ]
+    },
+    "Assisted Population": {
+      "main": [
+        [{ "node": "Population Results Processor", "type": "main", "index": 0 }]
+      ]
+    },
+    "Population Results Processor": {
+      "main": [
+        [{ "node": "Quality Validation Check", "type": "main", "index": 0 }]
+      ]
+    },
+    "Quality Validation Check": {
+      "main": [
+        [{ "node": "Template Validation", "type": "main", "index": 0 }],
+        [{ "node": "Issues Handler", "type": "main", "index": 0 }]
+      ]
+    },
+    "Template Validation": {
+      "main": [
+        [{ "node": "Template Finalization", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": true,
+  "id": "template-population-formulas"
+} 

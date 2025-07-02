@@ -1,0 +1,220 @@
+{
+  "name": "DealDone Document Classification and Routing",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Document Pre-Classification Analysis\nconst payload = $json;\nconst documents = payload.filePaths || [];\n\n// Initialize document analysis array\nconst documentAnalysis = documents.map((filePath, index) => {\n  const fileName = filePath.split('/').pop();\n  const fileExtension = fileName.split('.').pop().toLowerCase();\n  const pathSegments = filePath.split('/');\n  \n  // Extract context clues from file path and name\n  const contextClues = {\n    fileName: fileName,\n    fileExtension: fileExtension,\n    pathSegments: pathSegments,\n    folderContext: pathSegments.slice(-3, -1),\n    dealName: payload.dealName,\n    index: index\n  };\n  \n  // Initial classification hints based on file structure\n  const initialHints = {\n    isFinancial: /(?:financial|finance|budget|revenue|profit|loss|income|balance|cash|flow|ebitda|valuation)/i.test(filePath),\n    isLegal: /(?:legal|contract|agreement|terms|conditions|compliance|regulatory|license|permit)/i.test(filePath),\n    isOperational: /(?:operation|process|procedure|workflow|staff|employee|hr|human|resource)/i.test(filePath),\n    isDueDiligence: /(?:due.?diligence|dd|audit|review|assessment|analysis)/i.test(filePath),\n    isTechnical: /(?:technical|tech|it|system|software|hardware|infrastructure)/i.test(filePath),\n    isMarketing: /(?:marketing|sales|customer|client|market|brand|promotion)/i.test(filePath)\n  };\n  \n  return {\n    filePath: filePath,\n    fileName: fileName,\n    fileExtension: fileExtension,\n    contextClues: contextClues,\n    initialHints: initialHints,\n    status: 'pre-analyzed',\n    readyForClassification: true\n  };\n});\n\nreturn {\n  ...payload,\n  documentAnalysis: documentAnalysis,\n  totalDocuments: documents.length,\n  preClassificationComplete: true,\n  processingStep: 'document-pre-classification'\n};"
+      },
+      "id": "document-pre-classifier",
+      "name": "Document Pre-Classifier",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Split documents for parallel classification\nconst payload = $json;\nconst documentAnalysis = payload.documentAnalysis || [];\n\n// Create individual processing items for each document\nreturn documentAnalysis.map(doc => ({\n  ...payload,\n  currentDocument: doc,\n  processingMode: 'individual-classification',\n  batchInfo: {\n    totalDocuments: documentAnalysis.length,\n    currentIndex: doc.index || 0,\n    batchId: payload.jobId\n  }\n}));"
+      },
+      "id": "document-splitter",
+      "name": "Document Splitter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/classify-document",
+        "options": {
+          "timeout": 60000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"filePath\": \"{{ $json.currentDocument.filePath }}\", \"fileName\": \"{{ $json.currentDocument.fileName }}\", \"dealName\": \"{{ $json.dealName }}\", \"jobId\": \"{{ $json.jobId }}\", \"contextClues\": {{ $json.currentDocument.contextClues }}, \"initialHints\": {{ $json.currentDocument.initialHints }}, \"classificationDepth\": \"comprehensive\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "dealdone-api-key"
+            }
+          ]
+        }
+      },
+      "id": "ai-classifier",
+      "name": "AI Document Classifier",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process AI classification results\nconst payload = $json;\nconst classificationResult = payload.body || payload;\nconst currentDoc = payload.currentDocument;\n\n// Extract AI classification data\nconst aiClassification = {\n  primaryCategory: classificationResult.primaryCategory || 'general',\n  confidence: classificationResult.confidence || 0.5,\n  reasoning: classificationResult.reasoning || 'AI analysis completed',\n  categories: classificationResult.categories || {}\n};\n\n// Create composite scoring\nconst compositeScoring = {\n  financial: (aiClassification.categories.financial || 0) * 0.7 + (currentDoc.initialHints.isFinancial ? 0.3 : 0),\n  legal: (aiClassification.categories.legal || 0) * 0.7 + (currentDoc.initialHints.isLegal ? 0.3 : 0),\n  operational: (aiClassification.categories.operational || 0) * 0.7 + (currentDoc.initialHints.isOperational ? 0.3 : 0),\n  dueDiligence: (aiClassification.categories.dueDiligence || 0) * 0.7 + (currentDoc.initialHints.isDueDiligence ? 0.3 : 0),\n  technical: (aiClassification.categories.technical || 0) * 0.7 + (currentDoc.initialHints.isTechnical ? 0.3 : 0),\n  marketing: (aiClassification.categories.marketing || 0) * 0.7 + (currentDoc.initialHints.isMarketing ? 0.3 : 0)\n};\n\n// Find highest scoring category\nconst categoryScores = Object.entries(compositeScoring)\n  .map(([category, score]) => ({ category, score }))\n  .sort((a, b) => b.score - a.score);\n\nconst finalClassification = {\n  primaryCategory: categoryScores[0]?.category || 'general',\n  primaryScore: categoryScores[0]?.score || 0,\n  confidence: aiClassification.confidence,\n  isHighConfidence: aiClassification.confidence >= 0.8,\n  isLowConfidence: aiClassification.confidence < 0.5,\n  requiresManualReview: aiClassification.confidence < 0.3\n};\n\n// Create classified document\nconst classifiedDocument = {\n  ...currentDoc,\n  aiClassification: aiClassification,\n  compositeScoring: compositeScoring,\n  finalClassification: finalClassification,\n  processingPath: finalClassification.primaryCategory + '-processing',\n  status: 'classified',\n  readyForRouting: true\n};\n\nreturn {\n  ...payload,\n  currentDocument: classifiedDocument,\n  classificationComplete: true\n};"
+      },
+      "id": "classification-processor",
+      "name": "Classification Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "financial",
+              "leftValue": "={{ $json.currentDocument.finalClassification.primaryCategory }}",
+              "rightValue": "financial",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "legal",
+              "leftValue": "={{ $json.currentDocument.finalClassification.primaryCategory }}",
+              "rightValue": "legal",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "operational",
+              "leftValue": "={{ $json.currentDocument.finalClassification.primaryCategory }}",
+              "rightValue": "operational",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "category-router",
+      "name": "Category Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Financial Document Processing Configuration\nconst payload = $json;\nconst doc = payload.currentDocument;\n\nconst financialConfig = {\n  processingType: 'financial-enhanced',\n  extractors: ['revenue-analyzer', 'balance-sheet-parser', 'cash-flow-analyzer'],\n  templates: ['financial-model', 'valuation-template'],\n  confidenceThreshold: 0.85,\n  estimatedTime: 120000\n};\n\nreturn {\n  ...payload,\n  currentDocument: {\n    ...doc,\n    processingConfiguration: financialConfig,\n    status: 'routed-financial'\n  }\n};"
+      },
+      "id": "financial-router",
+      "name": "Financial Router",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Legal Document Processing Configuration\nconst payload = $json;\nconst doc = payload.currentDocument;\n\nconst legalConfig = {\n  processingType: 'legal-enhanced',\n  extractors: ['contract-analyzer', 'legal-entity-extractor', 'compliance-checker'],\n  templates: ['legal-summary', 'compliance-checklist'],\n  confidenceThreshold: 0.90,\n  estimatedTime: 180000\n};\n\nreturn {\n  ...payload,\n  currentDocument: {\n    ...doc,\n    processingConfiguration: legalConfig,\n    status: 'routed-legal'\n  }\n};"
+      },
+      "id": "legal-router",
+      "name": "Legal Router",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// General Document Processing Configuration\nconst payload = $json;\nconst doc = payload.currentDocument;\n\nconst generalConfig = {\n  processingType: 'general-standard',\n  extractors: ['general-content-extractor', 'keyword-analyzer'],\n  templates: ['general-summary', 'document-overview'],\n  confidenceThreshold: 0.60,\n  estimatedTime: 60000\n};\n\nreturn {\n  ...payload,\n  currentDocument: {\n    ...doc,\n    processingConfiguration: generalConfig,\n    status: 'routed-general'\n  }\n};"
+      },
+      "id": "general-router",
+      "name": "General Router",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 400]
+    }
+  ],
+  "connections": {
+    "Document Pre-Classifier": {
+      "main": [
+        [
+          {
+            "node": "Document Splitter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Document Splitter": {
+      "main": [
+        [
+          {
+            "node": "AI Document Classifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Document Classifier": {
+      "main": [
+        [
+          {
+            "node": "Classification Processor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classification Processor": {
+      "main": [
+        [
+          {
+            "node": "Category Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Category Router": {
+      "main": [
+        [
+          {
+            "node": "Financial Router",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Legal Router",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "General Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1.0.0",
+  "id": "dealdone-classification-routing"
+} 

@@ -1,0 +1,184 @@
+{
+  "name": "Template Discovery and Field Mapping",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Template Discovery Engine\nconst payload = $json;\nconst doc = payload.currentDocument;\nconst classification = doc.finalClassification;\n\n// Template categories based on classification\nconst getTemplateCategories = (primaryCategory) => {\n  const categories = {\n    financial: ['financial-model', 'valuation-template', 'due-diligence-financial', 'cash-flow-analysis'],\n    legal: ['legal-contract-summary', 'compliance-checklist', 'legal-risk-matrix', 'regulatory-overview'],\n    operational: ['operational-overview', 'process-documentation', 'resource-planning', 'operational-metrics'],\n    dueDiligence: ['due-diligence-summary', 'risk-assessment-matrix', 'compliance-status-report'],\n    technical: ['technical-overview', 'system-architecture-diagram', 'technology-assessment'],\n    marketing: ['market-analysis-summary', 'competitive-landscape-overview', 'customer-segment-analysis'],\n    general: ['general-document-summary', 'content-analysis-report', 'document-overview']\n  };\n  return categories[primaryCategory] || categories.general;\n};\n\nconst discoveryParams = {\n  primaryCategory: classification.primaryCategory,\n  confidence: classification.confidence,\n  documentType: doc.fileExtension,\n  dealName: payload.dealName,\n  templateCategories: getTemplateCategories(classification.primaryCategory),\n  extractedKeywords: doc.aiClassification?.extractedKeywords || []\n};\n\nreturn {\n  ...payload,\n  currentDocument: {\n    ...doc,\n    templateDiscovery: {\n      discoveryParams,\n      status: 'discovery-initiated',\n      timestamp: Date.now()\n    }\n  }\n};"
+      },
+      "id": "template-discovery",
+      "name": "Template Discovery Engine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/discover-templates",
+        "options": { "timeout": 60000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"discoveryParams\": {{ $json.currentDocument.templateDiscovery.discoveryParams }}, \"dealName\": \"{{ $json.dealName }}\", \"jobId\": \"{{ $json.jobId }}\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "template-discovery-api",
+      "name": "Template Discovery API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process template discovery results\nconst payload = $json;\nconst result = payload.body || payload;\nconst doc = payload.currentDocument;\n\nconst templateMatches = result.templateMatches || [];\nconst scoredTemplates = templateMatches.map(template => ({\n  ...template,\n  finalScore: template.matchScore || 0\n})).sort((a, b) => b.finalScore - a.finalScore);\n\nconst topTemplates = scoredTemplates.slice(0, 3);\nconst primaryTemplate = topTemplates[0] || null;\n\nconst discoveryResults = {\n  discoveredTemplates: scoredTemplates,\n  topTemplates,\n  primaryTemplate,\n  metrics: {\n    totalTemplatesFound: templateMatches.length,\n    averageScore: scoredTemplates.reduce((sum, t) => sum + t.finalScore, 0) / Math.max(scoredTemplates.length, 1)\n  }\n};\n\nreturn {\n  ...payload,\n  currentDocument: {\n    ...doc,\n    templateDiscovery: {\n      ...doc.templateDiscovery,\n      results: discoveryResults,\n      status: 'discovery-completed',\n      readyForMapping: primaryTemplate !== null\n    }\n  }\n};"
+      },
+      "id": "template-processor",
+      "name": "Template Discovery Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "id": "has-templates",
+              "leftValue": "={{ $json.currentDocument.templateDiscovery.readyForMapping }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true" }
+            }
+          ]
+        }
+      },
+      "id": "template-check",
+      "name": "Template Availability Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [800, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Field Mapping Engine\nconst payload = $json;\nconst doc = payload.currentDocument;\nconst template = doc.templateDiscovery.results.primaryTemplate;\n\nconst mappingParams = {\n  documentData: {\n    filePath: doc.filePath,\n    fileName: doc.fileName,\n    classification: doc.finalClassification,\n    extractedKeywords: doc.aiClassification?.extractedKeywords || []\n  },\n  templateInfo: {\n    templateId: template.templateId,\n    templateName: template.name,\n    templateFields: template.fields || [],\n    requiredFields: template.requiredFields || []\n  },\n  mappingConfig: {\n    strategy: 'intelligent-mapping',\n    enableFuzzyMatching: true,\n    confidenceThreshold: 0.7\n  }\n};\n\nreturn {\n  ...payload,\n  currentDocument: {\n    ...doc,\n    fieldMapping: {\n      params: mappingParams,\n      status: 'mapping-initiated'\n    }\n  }\n};"
+      },
+      "id": "field-mapping",
+      "name": "Field Mapping Engine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 250]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/extract-document-fields",
+        "options": { "timeout": 90000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"mappingParams\": {{ $json.currentDocument.fieldMapping.params }}, \"dealName\": \"{{ $json.dealName }}\", \"jobId\": \"{{ $json.jobId }}\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "field-extraction",
+      "name": "Document Field Extraction",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1200, 250]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/map-template-fields",
+        "options": { "timeout": 60000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"extractedFields\": {{ $json.body.extractedFields }}, \"templateFields\": {{ $json.currentDocument.fieldMapping.params.templateInfo.templateFields }}, \"mappingConfig\": {{ $json.currentDocument.fieldMapping.params.mappingConfig }}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "field-mapping-api",
+      "name": "Template Field Mapping",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1400, 250]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Field Mapping Results Processor\nconst payload = $json;\nconst result = payload.body || payload;\nconst doc = payload.currentDocument;\n\nconst fieldMappings = result.mappings || [];\nconst extractedFields = result.extractedFields || {};\n\nconst qualityAnalysis = {\n  totalMappings: fieldMappings.length,\n  successfulMappings: fieldMappings.filter(m => m.confidence >= 0.7).length,\n  averageConfidence: fieldMappings.reduce((sum, m) => sum + m.confidence, 0) / Math.max(fieldMappings.length, 1),\n  overallScore: fieldMappings.filter(m => m.confidence >= 0.7).length / Math.max(fieldMappings.length, 1)\n};\n\nconst mappingResults = {\n  mappings: fieldMappings,\n  extractedFields,\n  qualityAnalysis,\n  readyForPopulation: qualityAnalysis.overallScore >= 0.6\n};\n\nreturn {\n  ...payload,\n  currentDocument: {\n    ...doc,\n    fieldMapping: {\n      ...doc.fieldMapping,\n      results: mappingResults,\n      status: 'mapping-completed'\n    }\n  }\n};"
+      },
+      "id": "mapping-processor",
+      "name": "Field Mapping Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1600, 250]
+    },
+    {
+      "parameters": {
+        "jsCode": "// No Templates Handler\nconst payload = $json;\nconst doc = payload.currentDocument;\n\nconst fallbackPlan = {\n  reason: 'no-suitable-templates',\n  strategy: 'generic-extraction',\n  requiresManualReview: true\n};\n\nreturn {\n  ...payload,\n  currentDocument: {\n    ...doc,\n    fallbackPlan,\n    status: 'no-templates-fallback'\n  },\n  requiresManualReview: true\n};"
+      },
+      "id": "no-templates",
+      "name": "No Templates Handler",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 400]
+    }
+  ],
+  "connections": {
+    "Template Discovery Engine": {
+      "main": [
+        [{ "node": "Template Discovery API", "type": "main", "index": 0 }]
+      ]
+    },
+    "Template Discovery API": {
+      "main": [
+        [{ "node": "Template Discovery Processor", "type": "main", "index": 0 }]
+      ]
+    },
+    "Template Discovery Processor": {
+      "main": [
+        [{ "node": "Template Availability Check", "type": "main", "index": 0 }]
+      ]
+    },
+    "Template Availability Check": {
+      "main": [
+        [{ "node": "Field Mapping Engine", "type": "main", "index": 0 }],
+        [{ "node": "No Templates Handler", "type": "main", "index": 0 }]
+      ]
+    },
+    "Field Mapping Engine": {
+      "main": [
+        [{ "node": "Document Field Extraction", "type": "main", "index": 0 }]
+      ]
+    },
+    "Document Field Extraction": {
+      "main": [
+        [{ "node": "Template Field Mapping", "type": "main", "index": 0 }]
+      ]
+    },
+    "Template Field Mapping": {
+      "main": [
+        [{ "node": "Field Mapping Processor", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": true,
+  "id": "template-discovery-mapping"
+} 

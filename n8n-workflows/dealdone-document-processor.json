@@ -11,12 +11,11 @@
       "name": "DealDone Webhook Trigger",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [240, 300],
-      "webhookId": "dealdone-analysis-trigger"
+      "position": [240, 300]
     },
     {
       "parameters": {
-        "jsCode": "const payload = $json;\nconst requiredFields = ['dealName', 'filePaths', 'triggerType', 'jobId', 'timestamp'];\nconst missingFields = requiredFields.filter(field => !payload[field]);\nif (missingFields.length > 0) {\n  throw new Error(`Missing required fields: ${missingFields.join(', ')}`);\n}\nreturn {\n  ...payload,\n  processedAt: Date.now(),\n  workflowExecutionId: $workflow.id,\n  processingStatus: 'validated'\n};"
+        "jsCode": "const payload = $json;\nconst requiredFields = ['dealName', 'documentName', 'documentPath', 'jobId', 'timestamp'];\nconst missingFields = requiredFields.filter(field => !payload[field]);\nif (missingFields.length > 0) {\n  throw new Error(`Missing required fields: ${missingFields.join(', ')}`);\n}\nreturn {\n  ...payload,\n  processedAt: Date.now(),\n  workflowExecutionId: $workflow.id,\n  processingStatus: 'validated',\n  priority: payload.priority || 'normal'\n};"
       },
       "id": "payload-validator",
       "name": "Payload Validator",
@@ -28,69 +27,298 @@
       "parameters": {
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
-        "url": "http://localhost:8081/analyze-document",
-        "options": {
-          "timeout": 60000
-        },
+        "url": "http://localhost:8081/classify-document",
+        "options": { "timeout": 60000 },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\"filePaths\": {{ $json.filePaths }}, \"dealName\": \"{{ $json.dealName }}\", \"jobId\": \"{{ $json.jobId }}\", \"analysisDepth\": \"comprehensive\"}",
+        "jsonBody": "={\"documentPath\": \"{{ $json.documentPath }}\", \"documentName\": \"{{ $json.documentName }}\", \"dealName\": \"{{ $json.dealName }}\", \"jobId\": \"{{ $json.jobId }}\"}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            },
-            {
-              "name": "X-API-Key",
-              "value": "dealdone-api-key"
-            }
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
           ]
         }
       },
-      "id": "document-processor",
-      "name": "Document Processor",
+      "id": "document-classifier",
+      "name": "Document Classification Engine",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [680, 300]
     },
     {
       "parameters": {
-        "jsCode": "const payload = $json;\nconst analysisResult = payload.body || payload;\nconst finalResult = {\n  jobId: payload.jobId,\n  dealName: payload.dealName,\n  workflowType: 'document-analysis',\n  status: 'completed',\n  processedDocuments: analysisResult.processedDocuments || 0,\n  templatesUpdated: analysisResult.templatesUpdated || [],\n  averageConfidence: analysisResult.averageConfidence || 0.5,\n  processingTimeMs: Date.now() - payload.processedAt,\n  startTime: payload.processedAt,\n  endTime: Date.now(),\n  results: analysisResult,\n  timestamp: Date.now()\n};\nreturn finalResult;"
+        "jsCode": "const payload = $json;\nconst classificationResult = payload.body || payload;\nconst confidence = classificationResult.confidence || 0;\nconst documentType = classificationResult.documentType || 'unknown';\n\n// Determine processing path based on confidence\nconst processingDecision = {\n  documentType,\n  confidence,\n  requiresManualReview: confidence < 0.7,\n  processingPath: confidence >= 0.8 ? 'automated' : confidence >= 0.6 ? 'assisted' : 'manual',\n  priority: payload.priority === 'high' || confidence < 0.5 ? 'high' : 'normal'\n};\n\nreturn {\n  ...payload,\n  classification: {\n    documentType,\n    confidence,\n    alternatives: classificationResult.alternatives || [],\n    processingDecision\n  },\n  processingStep: 'classification-completed'\n};"
       },
-      "id": "result-processor",
-      "name": "Result Processor",
+      "id": "classification-processor",
+      "name": "Classification Result Processor",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [900, 300]
     },
     {
       "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "id": "high-confidence",
+              "leftValue": "={{ $json.classification.confidence }}",
+              "rightValue": 0.8,
+              "operator": { "type": "number", "operation": "gte" }
+            }
+          ]
+        }
+      },
+      "id": "confidence-router",
+      "name": "Confidence-Based Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
-        "url": "http://localhost:8080/webhook/results",
-        "options": {
-          "timeout": 30000
-        },
+        "url": "http://localhost:8081/discover-templates",
+        "options": { "timeout": 90000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"documentType\": \"{{ $json.classification.documentType }}\", \"dealName\": \"{{ $json.dealName }}\", \"documentPath\": \"{{ $json.documentPath }}\", \"jobId\": \"{{ $json.jobId }}\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "template-discovery",
+      "name": "Template Discovery Engine",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1340, 250]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/manual-review",
+        "options": { "timeout": 30000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"jobId\": \"{{ $json.jobId }}\", \"dealName\": \"{{ $json.dealName }}\", \"documentName\": \"{{ $json.documentName }}\", \"reason\": \"Low classification confidence\", \"confidence\": {{ $json.classification.confidence }}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "manual-review-trigger",
+      "name": "Manual Review Trigger",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1340, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\nconst templateResult = payload.body || payload;\nconst templates = templateResult.templates || [];\n\nconst templateDiscovery = {\n  templatesFound: templates.length,\n  templates: templates.map(t => ({\n    templateId: t.templateId,\n    templateName: t.templateName,\n    relevanceScore: t.relevanceScore || 0,\n    fieldCount: t.fieldCount || 0\n  })),\n  bestMatch: templates.length > 0 ? templates[0] : null,\n  processingReady: templates.length > 0\n};\n\nreturn {\n  ...payload,\n  templateDiscovery,\n  processingStep: 'template-discovery-completed'\n};"
+      },
+      "id": "template-processor",
+      "name": "Template Discovery Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 250]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "id": "templates-found",
+              "leftValue": "={{ $json.templateDiscovery.templatesFound }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ]
+        }
+      },
+      "id": "template-router",
+      "name": "Template Availability Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1780, 250]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/extract-fields",
+        "options": { "timeout": 120000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"documentPath\": \"{{ $json.documentPath }}\", \"templateId\": \"{{ $json.templateDiscovery.bestMatch.templateId }}\", \"documentType\": \"{{ $json.classification.documentType }}\", \"jobId\": \"{{ $json.jobId }}\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "field-extractor",
+      "name": "Field Mapping Engine",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2000, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\nconst extractionResult = payload.body || payload;\nconst fields = extractionResult.extractedFields || [];\n\nconst fieldMapping = {\n  fieldsExtracted: fields.length,\n  fields: fields.map(f => ({\n    fieldName: f.fieldName,\n    extractedValue: f.extractedValue,\n    confidence: f.confidence || 0,\n    source: f.source || 'unknown',\n    dataType: f.dataType || 'text'\n  })),\n  averageConfidence: fields.length > 0 ? \n    fields.reduce((sum, f) => sum + (f.confidence || 0), 0) / fields.length : 0,\n  readyForPopulation: fields.length > 0 && \n    fields.some(f => (f.confidence || 0) > 0.6)\n};\n\nreturn {\n  ...payload,\n  fieldMapping,\n  processingStep: 'field-mapping-completed'\n};"
+      },
+      "id": "field-processor",
+      "name": "Field Mapping Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 200]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/populate-template",
+        "options": { "timeout": 150000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"templateId\": \"{{ $json.templateDiscovery.bestMatch.templateId }}\", \"fieldMappings\": {{ JSON.stringify($json.fieldMapping.fields) }}, \"preserveFormulas\": true, \"jobId\": \"{{ $json.jobId }}\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "template-populator",
+      "name": "Template Population Engine",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2440, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\nconst populationResult = payload.body || payload;\n\nconst templatePopulation = {\n  populationSuccess: populationResult.success || false,\n  fieldsPopulated: populationResult.fieldsPopulated || 0,\n  formulasPreserved: populationResult.formulasPreserved || 0,\n  populatedTemplateId: populationResult.populatedTemplateId,\n  populationSummary: populationResult.populationSummary || {},\n  completionPercentage: populationResult.completionPercentage || 0\n};\n\nreturn {\n  ...payload,\n  templatePopulation,\n  processingStep: 'template-population-completed'\n};"
+      },
+      "id": "population-processor",
+      "name": "Population Result Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2660, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\n\n// Calculate overall quality metrics\nconst qualityMetrics = {\n  classificationQuality: {\n    confidence: payload.classification?.confidence || 0,\n    documentType: payload.classification?.documentType,\n    weight: 0.2\n  },\n  templateDiscoveryQuality: {\n    templatesFound: payload.templateDiscovery?.templatesFound || 0,\n    bestMatchScore: payload.templateDiscovery?.bestMatch?.relevanceScore || 0,\n    weight: 0.2\n  },\n  fieldMappingQuality: {\n    fieldsExtracted: payload.fieldMapping?.fieldsExtracted || 0,\n    averageConfidence: payload.fieldMapping?.averageConfidence || 0,\n    weight: 0.3\n  },\n  populationQuality: {\n    completionPercentage: payload.templatePopulation?.completionPercentage || 0,\n    formulasPreserved: payload.templatePopulation?.formulasPreserved || 0,\n    weight: 0.3\n  }\n};\n\n// Calculate weighted overall score\nconst overallScore = \n  (qualityMetrics.classificationQuality.confidence * qualityMetrics.classificationQuality.weight) +\n  (qualityMetrics.templateDiscoveryQuality.bestMatchScore * qualityMetrics.templateDiscoveryQuality.weight) +\n  (qualityMetrics.fieldMappingQuality.averageConfidence * qualityMetrics.fieldMappingQuality.weight) +\n  (qualityMetrics.populationQuality.completionPercentage / 100 * qualityMetrics.populationQuality.weight);\n\n// Determine final status\nconst finalStatus = overallScore >= 0.8 ? 'excellent' : \n                   overallScore >= 0.6 ? 'good' : \n                   overallScore >= 0.4 ? 'acceptable' : 'needs-review';\n\nconst qualityAssessment = {\n  overallScore: Math.round(overallScore * 100) / 100,\n  finalStatus,\n  qualityMetrics,\n  recommendations: generateRecommendations(qualityMetrics, overallScore)\n};\n\nfunction generateRecommendations(metrics, score) {\n  const recommendations = [];\n  \n  if (metrics.classificationQuality.confidence < 0.7) {\n    recommendations.push('Consider manual verification of document classification');\n  }\n  \n  if (metrics.fieldMappingQuality.averageConfidence < 0.6) {\n    recommendations.push('Review extracted field values for accuracy');\n  }\n  \n  if (metrics.populationQuality.completionPercentage < 70) {\n    recommendations.push('Template population incomplete - review missing fields');\n  }\n  \n  if (score < 0.5) {\n    recommendations.push('Full manual review recommended');\n  }\n  \n  return recommendations;\n}\n\nreturn {\n  ...payload,\n  qualityAssessment,\n  processingStep: 'quality-assessment-completed'\n};"
+      },
+      "id": "quality-assessor",
+      "name": "Quality Assessment Engine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2880, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\n\n// Compile comprehensive results\nconst processingResults = {\n  jobId: payload.jobId,\n  dealName: payload.dealName,\n  documentName: payload.documentName,\n  documentPath: payload.documentPath,\n  workflowType: 'comprehensive-document-analysis',\n  status: 'completed',\n  processingTime: {\n    startTime: payload.processedAt,\n    endTime: Date.now(),\n    durationMs: Date.now() - payload.processedAt\n  },\n  results: {\n    classification: payload.classification,\n    templateDiscovery: payload.templateDiscovery,\n    fieldMapping: payload.fieldMapping,\n    templatePopulation: payload.templatePopulation,\n    qualityAssessment: payload.qualityAssessment\n  },\n  summary: {\n    documentType: payload.classification?.documentType,\n    overallQuality: payload.qualityAssessment?.finalStatus,\n    overallScore: payload.qualityAssessment?.overallScore,\n    templatesProcessed: payload.templateDiscovery?.templatesFound || 0,\n    fieldsExtracted: payload.fieldMapping?.fieldsExtracted || 0,\n    populationComplete: payload.templatePopulation?.populationSuccess || false\n  },\n  metadata: {\n    workflowVersion: '1.0.0',\n    processingNode: 'comprehensive-processor',\n    timestamp: Date.now()\n  }\n};\n\nreturn processingResults;"
+      },
+      "id": "result-aggregator",
+      "name": "Result Aggregation Engine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3100, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "id": "needs-notification",
+              "leftValue": "={{ $json.summary.overallQuality }}",
+              "rightValue": "needs-review",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ]
+        }
+      },
+      "id": "notification-router",
+      "name": "Notification Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [3320, 200]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/send-notifications",
+        "options": { "timeout": 30000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"jobId\": \"{{ $json.jobId }}\", \"dealName\": \"{{ $json.dealName }}\", \"notificationType\": \"review-required\", \"qualityScore\": {{ $json.summary.overallScore }}, \"recommendations\": {{ JSON.stringify($json.results.qualityAssessment.recommendations) }}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "stakeholder-notifier",
+      "name": "Stakeholder Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [3540, 150]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/store-processing-results",
+        "options": { "timeout": 60000 },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json) }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            },
-            {
-              "name": "X-API-Key",
-              "value": "dealdone-webhook-key"
-            },
-            {
-              "name": "X-Timestamp",
-              "value": "={{ Math.floor(Date.now() / 1000) }}"
-            }
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "result-storage",
+      "name": "Result Storage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [3540, 250]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/webhook/results",
+        "options": { "timeout": 30000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-webhook-key" },
+            { "name": "X-Timestamp", "value": "={{ Math.floor(Date.now() / 1000) }}" }
           ]
         }
       },
@@ -98,52 +326,163 @@
       "name": "DealDone Webhook Response",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [1120, 300]
+      "position": [3760, 200]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/no-templates-found",
+        "options": { "timeout": 30000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"jobId\": \"{{ $json.jobId }}\", \"dealName\": \"{{ $json.dealName }}\", \"documentType\": \"{{ $json.classification.documentType }}\", \"reason\": \"No suitable templates found\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "no-templates-handler",
+      "name": "No Templates Handler",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2000, 350]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\nconst processingTime = payload.processingTime || {};\n\n// Calculate detailed performance metrics\nconst performanceMetrics = {\n  jobId: payload.jobId,\n  dealName: payload.dealName,\n  totalProcessingTime: processingTime.durationMs || 0,\n  stageTimings: {\n    classification: estimateStageTime('classification', processingTime.durationMs),\n    templateDiscovery: estimateStageTime('template-discovery', processingTime.durationMs),\n    fieldMapping: estimateStageTime('field-mapping', processingTime.durationMs),\n    templatePopulation: estimateStageTime('template-population', processingTime.durationMs),\n    qualityAssessment: estimateStageTime('quality-assessment', processingTime.durationMs)\n  },\n  throughputMetrics: {\n    documentsPerHour: calculateThroughput(processingTime.durationMs),\n    averageConfidence: payload.results?.qualityAssessment?.overallScore || 0,\n    successRate: payload.results?.templatePopulation?.populationSuccess ? 1 : 0\n  },\n  resourceUsage: {\n    apiCalls: countApiCalls(payload),\n    memoryProfile: 'normal',\n    nodeExecutions: 20\n  },\n  performanceGrade: calculatePerformanceGrade(processingTime.durationMs, payload.results?.qualityAssessment?.overallScore)\n};\n\nfunction estimateStageTime(stage, total) {\n  const stageWeights = {\n    'classification': 0.15,\n    'template-discovery': 0.25,\n    'field-mapping': 0.30,\n    'template-population': 0.25,\n    'quality-assessment': 0.05\n  };\n  return Math.round(total * (stageWeights[stage] || 0.1));\n}\n\nfunction calculateThroughput(durationMs) {\n  if (durationMs === 0) return 0;\n  return Math.round((3600000 / durationMs) * 100) / 100;\n}\n\nfunction countApiCalls(payload) {\n  let apiCalls = 0;\n  if (payload.classification) apiCalls++;\n  if (payload.templateDiscovery) apiCalls++;\n  if (payload.fieldMapping) apiCalls++;\n  if (payload.templatePopulation) apiCalls++;\n  return apiCalls;\n}\n\nfunction calculatePerformanceGrade(durationMs, qualityScore) {\n  const speedScore = durationMs < 30000 ? 1 : durationMs < 60000 ? 0.8 : durationMs < 120000 ? 0.6 : 0.4;\n  const qualityWeight = qualityScore || 0.5;\n  const combinedScore = (speedScore * 0.4) + (qualityWeight * 0.6);\n  \n  if (combinedScore >= 0.9) return 'A+';\n  if (combinedScore >= 0.8) return 'A';\n  if (combinedScore >= 0.7) return 'B+';\n  if (combinedScore >= 0.6) return 'B';\n  if (combinedScore >= 0.5) return 'C';\n  return 'D';\n}\n\nreturn {\n  ...payload,\n  performanceMetrics,\n  processingStep: 'performance-monitoring-completed'\n};"
+      },
+      "id": "performance-monitor",
+      "name": "Performance Monitor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3980, 200]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/cleanup-processing-artifacts",
+        "options": { "timeout": 30000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"jobId\": \"{{ $json.jobId }}\", \"dealName\": \"{{ $json.dealName }}\", \"performanceGrade\": \"{{ $json.performanceMetrics.performanceGrade }}\", \"cleanupActions\": [\"temp-files\", \"cache-entries\", \"processing-logs\"]}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" },
+            { "name": "X-Cleanup-Type", "value": "post-processing" }
+          ]
+        }
+      },
+      "id": "cleanup-handler",
+      "name": "Cleanup Handler",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [4200, 200]
     }
   ],
   "connections": {
     "DealDone Webhook Trigger": {
       "main": [
-        [
-          {
-            "node": "Payload Validator",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Payload Validator", "type": "main", "index": 0 }]
       ]
     },
     "Payload Validator": {
       "main": [
-        [
-          {
-            "node": "Document Processor",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Document Classification Engine", "type": "main", "index": 0 }]
       ]
     },
-    "Document Processor": {
+    "Document Classification Engine": {
       "main": [
-        [
-          {
-            "node": "Result Processor",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Classification Result Processor", "type": "main", "index": 0 }]
       ]
     },
-    "Result Processor": {
+    "Classification Result Processor": {
       "main": [
-        [
-          {
-            "node": "DealDone Webhook Response",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Confidence-Based Router", "type": "main", "index": 0 }]
+      ]
+    },
+    "Confidence-Based Router": {
+      "main": [
+        [{ "node": "Template Discovery Engine", "type": "main", "index": 0 }],
+        [{ "node": "Manual Review Trigger", "type": "main", "index": 0 }]
+      ]
+    },
+    "Template Discovery Engine": {
+      "main": [
+        [{ "node": "Template Discovery Processor", "type": "main", "index": 0 }]
+      ]
+    },
+    "Template Discovery Processor": {
+      "main": [
+        [{ "node": "Template Availability Router", "type": "main", "index": 0 }]
+      ]
+    },
+    "Template Availability Router": {
+      "main": [
+        [{ "node": "Field Mapping Engine", "type": "main", "index": 0 }],
+        [{ "node": "No Templates Handler", "type": "main", "index": 0 }]
+      ]
+    },
+    "Field Mapping Engine": {
+      "main": [
+        [{ "node": "Field Mapping Processor", "type": "main", "index": 0 }]
+      ]
+    },
+    "Field Mapping Processor": {
+      "main": [
+        [{ "node": "Template Population Engine", "type": "main", "index": 0 }]
+      ]
+    },
+    "Template Population Engine": {
+      "main": [
+        [{ "node": "Population Result Processor", "type": "main", "index": 0 }]
+      ]
+    },
+    "Population Result Processor": {
+      "main": [
+        [{ "node": "Quality Assessment Engine", "type": "main", "index": 0 }]
+      ]
+    },
+    "Quality Assessment Engine": {
+      "main": [
+        [{ "node": "Result Aggregation Engine", "type": "main", "index": 0 }]
+      ]
+    },
+    "Result Aggregation Engine": {
+      "main": [
+        [{ "node": "Notification Router", "type": "main", "index": 0 }]
+      ]
+    },
+    "Notification Router": {
+      "main": [
+        [{ "node": "Stakeholder Notification", "type": "main", "index": 0 }],
+        [{ "node": "Result Storage", "type": "main", "index": 0 }]
+      ]
+    },
+    "Stakeholder Notification": {
+      "main": [
+        [{ "node": "DealDone Webhook Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Result Storage": {
+      "main": [
+        [{ "node": "DealDone Webhook Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "DealDone Webhook Response": {
+      "main": [
+        [{ "node": "Performance Monitor", "type": "main", "index": 0 }]
+      ]
+    },
+    "Performance Monitor": {
+      "main": [
+        [{ "node": "Cleanup Handler", "type": "main", "index": 0 }]
       ]
     }
   },

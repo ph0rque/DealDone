@@ -1,0 +1,348 @@
+{
+  "name": "DealDone Webhook Triggers Configuration",
+  "description": "Comprehensive webhook trigger configurations for different DealDone request types",
+  "version": "1.0.0",
+  "triggers": {
+    "document-analysis": {
+      "name": "Document Analysis Trigger",
+      "description": "Primary webhook for receiving document analysis requests from DealDone",
+      "configuration": {
+        "httpMethod": "POST",
+        "path": "dealdone-document-analysis",
+        "authentication": {
+          "type": "queryAuth",
+          "queryParameterName": "api_key",
+          "required": true
+        },
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": ["http://localhost:8080", "https://dealdone.local"],
+          "maxFileSize": "100MB",
+          "timeout": 300000,
+          "retryPolicy": {
+            "enabled": true,
+            "maxRetries": 3,
+            "retryDelay": 5000
+          }
+        },
+        "headers": {
+          "required": [
+            "Content-Type",
+            "X-DealDone-Version",
+            "X-Request-ID"
+          ],
+          "optional": [
+            "X-Client-Info",
+            "X-Priority",
+            "X-Timeout"
+          ]
+        },
+        "validation": {
+          "contentType": ["application/json"],
+          "maxBodySize": "50MB",
+          "requiredFields": [
+            "dealName",
+            "filePaths", 
+            "triggerType",
+            "jobId",
+            "timestamp"
+          ],
+          "schema": "document-webhook-payload"
+        }
+      },
+      "sample_payload": {
+        "dealName": "AcquisitionCorp-TargetInc",
+        "filePaths": [
+          "/deals/AcquisitionCorp-TargetInc/documents/financial_statements.pdf",
+          "/deals/AcquisitionCorp-TargetInc/documents/legal_contracts.pdf"
+        ],
+        "triggerType": "user_button",
+        "workflowType": "document-analysis",
+        "jobId": "job-12345-67890",
+        "priority": 2,
+        "timestamp": 1672531200000,
+        "metadata": {
+          "source": "frontend",
+          "userAgent": "DealDone/1.1.0"
+        }
+      }
+    },
+    "batch-processing": {
+      "name": "Batch Processing Trigger",
+      "description": "Webhook for batch document processing requests",
+      "configuration": {
+        "httpMethod": "POST",
+        "path": "dealdone-batch-processing",
+        "authentication": {
+          "type": "queryAuth", 
+          "queryParameterName": "api_key",
+          "required": true
+        },
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": ["http://localhost:8080", "https://dealdone.local"],
+          "maxFileSize": "500MB",
+          "timeout": 900000,
+          "retryPolicy": {
+            "enabled": true,
+            "maxRetries": 2,
+            "retryDelay": 10000
+          }
+        },
+        "headers": {
+          "required": [
+            "Content-Type",
+            "X-DealDone-Version",
+            "X-Request-ID",
+            "X-Batch-Size"
+          ]
+        },
+        "validation": {
+          "contentType": ["application/json"],
+          "maxBodySize": "100MB",
+          "requiredFields": [
+            "batchId",
+            "dealName",
+            "batchType",
+            "items"
+          ],
+          "schema": "batch-processing-payload"
+        }
+      },
+      "sample_payload": {
+        "batchId": "batch-12345-67890",
+        "dealName": "AcquisitionCorp-TargetInc", 
+        "batchType": "deal_analysis",
+        "items": [
+          {
+            "itemId": "item1",
+            "itemType": "document",
+            "itemPath": "/documents/doc1.pdf"
+          },
+          {
+            "itemId": "item2", 
+            "itemType": "document",
+            "itemPath": "/documents/doc2.docx"
+          }
+        ],
+        "priority": 2,
+        "timestamp": 1672531200000
+      }
+    },
+    "error-handling": {
+      "name": "Error Handling Trigger",
+      "description": "Webhook for error handling and retry processing",
+      "configuration": {
+        "httpMethod": "POST",
+        "path": "dealdone-error-handling",
+        "authentication": {
+          "type": "queryAuth",
+          "queryParameterName": "api_key", 
+          "required": true
+        },
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": ["http://localhost:8080", "https://dealdone.local"],
+          "maxFileSize": "10MB",
+          "timeout": 120000,
+          "retryPolicy": {
+            "enabled": false
+          }
+        },
+        "headers": {
+          "required": [
+            "Content-Type",
+            "X-DealDone-Version",
+            "X-Request-ID",
+            "X-Error-Type"
+          ]
+        },
+        "validation": {
+          "contentType": ["application/json"],
+          "maxBodySize": "5MB",
+          "requiredFields": [
+            "originalJobId",
+            "errorJobId", 
+            "dealName",
+            "errorType"
+          ],
+          "schema": "error-handling-payload"
+        }
+      },
+      "sample_payload": {
+        "originalJobId": "job-12345-67890",
+        "errorJobId": "error-12345-67890",
+        "dealName": "AcquisitionCorp-TargetInc",
+        "errorType": "processing_timeout",
+        "retryAttempt": 1,
+        "maxRetries": 3,
+        "retryStrategy": "exponential",
+        "recoveryAction": "retry",
+        "timestamp": 1672531200000
+      }
+    },
+    "user-corrections": {
+      "name": "User Corrections Trigger",
+      "description": "Webhook for processing user corrections and learning feedback",
+      "configuration": {
+        "httpMethod": "POST",
+        "path": "dealdone-user-corrections",
+        "authentication": {
+          "type": "queryAuth",
+          "queryParameterName": "api_key",
+          "required": true
+        },
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": ["http://localhost:8080", "https://dealdone.local"],
+          "maxFileSize": "5MB",
+          "timeout": 180000,
+          "retryPolicy": {
+            "enabled": true,
+            "maxRetries": 1,
+            "retryDelay": 3000
+          }
+        },
+        "headers": {
+          "required": [
+            "Content-Type",
+            "X-DealDone-Version",
+            "X-Request-ID",
+            "X-Correction-Type"
+          ]
+        },
+        "validation": {
+          "contentType": ["application/json"],
+          "maxBodySize": "2MB",
+          "requiredFields": [
+            "correctionId",
+            "originalJobId",
+            "dealName",
+            "corrections"
+          ],
+          "schema": "user-correction-payload"
+        }
+      },
+      "sample_payload": {
+        "correctionId": "corr-12345-67890",
+        "originalJobId": "job-12345-67890",
+        "dealName": "AcquisitionCorp-TargetInc",
+        "templatePath": "/templates/deal_template.xlsx",
+        "corrections": [
+          {
+            "fieldName": "dealValue",
+            "originalValue": "1000000",
+            "correctedValue": "1200000",
+            "originalConfidence": 0.75,
+            "userConfidence": 0.95,
+            "correctionReason": "wrong_extraction"
+          }
+        ],
+        "correctionType": "manual",
+        "applyToSimilar": true,
+        "confidence": 0.95,
+        "timestamp": 1672531200000
+      }
+    },
+    "health-check": {
+      "name": "Health Check Trigger",
+      "description": "Webhook for system health monitoring and status checks",
+      "configuration": {
+        "httpMethod": "GET",
+        "path": "dealdone-health-check",
+        "authentication": {
+          "type": "queryAuth",
+          "queryParameterName": "api_key",
+          "required": false
+        },
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": ["*"],
+          "maxFileSize": "1MB",
+          "timeout": 30000,
+          "retryPolicy": {
+            "enabled": false
+          }
+        },
+        "headers": {
+          "required": [],
+          "optional": [
+            "X-DealDone-Version",
+            "X-Request-ID"
+          ]
+        },
+        "validation": {
+          "contentType": ["application/json", "text/plain"],
+          "maxBodySize": "1KB",
+          "requiredFields": [],
+          "schema": "health-check-payload"
+        }
+      },
+      "sample_payload": {
+        "checkId": "health-12345",
+        "checkType": "system",
+        "components": ["database", "ai_service", "file_system"],
+        "timestamp": 1672531200000
+      }
+    }
+  },
+  "security": {
+    "authentication": {
+      "methods": ["api_key", "hmac_signature"],
+      "api_key": {
+        "parameter": "api_key",
+        "location": "query",
+        "description": "DealDone generated API key for webhook authentication"
+      },
+      "hmac_signature": {
+        "header": "X-Signature",
+        "algorithm": "HMAC-SHA256",
+        "description": "HMAC signature for request validation"
+      }
+    },
+    "rate_limiting": {
+      "enabled": true,
+      "limits": {
+        "document-analysis": "60/minute",
+        "batch-processing": "10/minute",
+        "error-handling": "30/minute",
+        "user-corrections": "20/minute",
+        "health-check": "120/minute"
+      }
+    },
+    "ip_whitelisting": {
+      "enabled": false,
+      "allowed_ips": ["127.0.0.1", "::1"]
+    }
+  },
+  "monitoring": {
+    "logging": {
+      "enabled": true,
+      "level": "info",
+      "include_payload": false,
+      "include_headers": true
+    },
+    "metrics": {
+      "enabled": true,
+      "collect": [
+        "request_count",
+        "response_time",
+        "error_rate",
+        "payload_size"
+      ]
+    }
+  },
+  "testing": {
+    "test_urls": {
+      "document-analysis": "https://your-n8n-instance.com/webhook/dealdone-document-analysis?api_key=YOUR_API_KEY",
+      "batch-processing": "https://your-n8n-instance.com/webhook/dealdone-batch-processing?api_key=YOUR_API_KEY",
+      "error-handling": "https://your-n8n-instance.com/webhook/dealdone-error-handling?api_key=YOUR_API_KEY",
+      "user-corrections": "https://your-n8n-instance.com/webhook/dealdone-user-corrections?api_key=YOUR_API_KEY",
+      "health-check": "https://your-n8n-instance.com/webhook/dealdone-health-check"
+    },
+    "test_commands": {
+      "curl_document_analysis": "curl -X POST 'https://your-n8n-instance.com/webhook/dealdone-document-analysis?api_key=YOUR_API_KEY' -H 'Content-Type: application/json' -H 'X-DealDone-Version: 1.1.0' -H 'X-Request-ID: test-123' -d @sample_document_payload.json",
+      "curl_health_check": "curl -X GET 'https://your-n8n-instance.com/webhook/dealdone-health-check' -H 'X-DealDone-Version: 1.1.0'"
+    }
+  }
+} 

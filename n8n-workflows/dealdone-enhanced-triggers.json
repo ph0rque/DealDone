@@ -1,0 +1,470 @@
+{
+  "name": "DealDone Document Processor - Enhanced Triggers",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "dealdone-document-analysis",
+        "authenticationMethod": "queryAuth",
+        "queryAuth": {
+          "name": "api_key",
+          "value": "={{ $credentials.dealDoneApiKey }}"
+        },
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "http://localhost:8080,https://dealdone.local",
+          "httpCodeOnSuccess": 200,
+          "rawBody": false
+        }
+      },
+      "id": "enhanced-webhook-trigger",
+      "name": "Enhanced DealDone Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "dealdone-enhanced-analysis-trigger",
+      "credentials": {
+        "queryAuth": {
+          "id": "dealdone-api-key",
+          "name": "DealDone API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Enhanced payload validation with detailed error reporting\nconst payload = $json;\nconst headers = $node['Enhanced DealDone Webhook Trigger'].json.headers;\n\n// Validate required headers\nconst requiredHeaders = ['content-type', 'x-dealdone-version', 'x-request-id'];\nconst missingHeaders = requiredHeaders.filter(header => !headers[header]);\n\nif (missingHeaders.length > 0) {\n  throw new Error(`Missing required headers: ${missingHeaders.join(', ')}`);\n}\n\n// Validate DealDone version compatibility\nconst dealDoneVersion = headers['x-dealdone-version'];\nconst supportedVersions = ['1.0.0', '1.1.0', '1.2.0'];\nif (!supportedVersions.includes(dealDoneVersion)) {\n  console.log(`Warning: Unsupported DealDone version: ${dealDoneVersion}`);\n}\n\n// Validate payload structure\nconst requiredFields = ['dealName', 'filePaths', 'triggerType', 'jobId', 'timestamp'];\nconst missingFields = requiredFields.filter(field => !payload[field]);\n\nif (missingFields.length > 0) {\n  throw new Error(`Missing required fields: ${missingFields.join(', ')}`);\n}\n\n// Validate file paths array\nif (!Array.isArray(payload.filePaths) || payload.filePaths.length === 0) {\n  throw new Error('filePaths must be a non-empty array');\n}\n\n// Validate timestamp (not older than 1 hour)\nconst now = Date.now();\nconst timestampAge = now - payload.timestamp;\nif (timestampAge > 3600000) { // 1 hour\n  throw new Error(`Payload timestamp is too old: ${timestampAge}ms`);\n}\n\n// Validate file paths format\nconst invalidPaths = payload.filePaths.filter(path => {\n  return !path.startsWith('/') || path.includes('..') || path.length > 500;\n});\n\nif (invalidPaths.length > 0) {\n  throw new Error(`Invalid file paths detected: ${invalidPaths.join(', ')}`);\n}\n\n// Parse priority (default to normal)\nlet priority = 'normal';\nif (payload.priority !== undefined) {\n  if (typeof payload.priority === 'number') {\n    if (payload.priority >= 3) priority = 'high';\n    else if (payload.priority <= 1) priority = 'low';\n  } else if (typeof payload.priority === 'string') {\n    priority = payload.priority.toLowerCase();\n  }\n}\n\n// Extract metadata with defaults\nconst metadata = {\n  source: payload.metadata?.source || 'unknown',\n  userAgent: headers['user-agent'] || 'unknown',\n  clientIP: headers['x-forwarded-for'] || headers['x-real-ip'] || 'unknown',\n  requestId: headers['x-request-id'],\n  dealDoneVersion: dealDoneVersion,\n  priority: priority,\n  timeout: payload.timeoutSeconds || 300,\n  retryCount: payload.retryCount || 0,\n  maxRetries: payload.maxRetries || 3\n};\n\n// Create enhanced payload\nconst enhancedPayload = {\n  ...payload,\n  processedAt: now,\n  workflowExecutionId: $workflow.id,\n  processingStatus: 'validated',\n  totalDocuments: payload.filePaths.length,\n  processedDocuments: 0,\n  currentStep: 'validation',\n  metadata: metadata,\n  validation: {\n    timestamp: now,\n    payloadSize: JSON.stringify(payload).length,\n    headerCount: Object.keys(headers).length,\n    validationTime: Date.now() - now\n  }\n};\n\nreturn enhancedPayload;"
+      },
+      "id": "enhanced-payload-validator",
+      "name": "Enhanced Payload Validator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "high-priority",
+              "leftValue": "={{ $json.metadata.priority }}",
+              "rightValue": "high",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "low-priority",
+              "leftValue": "={{ $json.metadata.priority }}",
+              "rightValue": "low",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "priority-router",
+      "name": "Priority Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// High priority processing path\nconst payload = $json;\n\n// Add high priority metadata\nconst highPriorityPayload = {\n  ...payload,\n  processingPath: 'high-priority',\n  queuePosition: 0, // Front of queue\n  timeoutExtension: 1.5, // 50% longer timeout\n  resourceAllocation: 'premium',\n  currentStep: 'high-priority-routing'\n};\n\nreturn highPriorityPayload;"
+      },
+      "id": "high-priority-processor",
+      "name": "High Priority Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Low priority processing path\nconst payload = $json;\n\n// Add low priority metadata\nconst lowPriorityPayload = {\n  ...payload,\n  processingPath: 'low-priority',\n  queuePosition: 999, // Back of queue\n  timeoutReduction: 0.8, // 20% shorter timeout\n  resourceAllocation: 'basic',\n  currentStep: 'low-priority-routing'\n};\n\nreturn lowPriorityPayload;"
+      },
+      "id": "low-priority-processor", 
+      "name": "Low Priority Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normal priority processing path\nconst payload = $json;\n\n// Add normal priority metadata\nconst normalPriorityPayload = {\n  ...payload,\n  processingPath: 'normal-priority',\n  queuePosition: 50, // Middle of queue\n  timeoutExtension: 1.0, // Standard timeout\n  resourceAllocation: 'standard',\n  currentStep: 'normal-priority-routing'\n};\n\nreturn normalPriorityPayload;"
+      },
+      "id": "normal-priority-processor",
+      "name": "Normal Priority Processor", 
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Initialize comprehensive job tracking\nconst payload = $json;\n\n// Calculate adjusted timeout based on priority\nconst baseTimeout = payload.metadata.timeout || 300;\nconst timeoutMultiplier = payload.timeoutExtension || 1.0;\nconst adjustedTimeout = Math.floor(baseTimeout * timeoutMultiplier);\n\n// Create enhanced job tracking object\nconst jobTracking = {\n  jobId: payload.jobId,\n  dealName: payload.dealName,\n  status: 'processing',\n  startTime: Date.now(),\n  currentStep: 'initialization',\n  progress: 0.0,\n  processedDocuments: 0,\n  totalDocuments: payload.filePaths.length,\n  errors: [],\n  warnings: [],\n  processingPath: payload.processingPath || 'normal-priority',\n  priority: payload.metadata.priority,\n  estimatedCompletion: Date.now() + (adjustedTimeout * 1000),\n  timeout: adjustedTimeout,\n  metadata: {\n    triggerType: payload.triggerType,\n    workflowType: 'document-analysis',\n    priority: payload.metadata.priority,\n    source: payload.metadata.source,\n    userAgent: payload.metadata.userAgent,\n    requestId: payload.metadata.requestId,\n    dealDoneVersion: payload.metadata.dealDoneVersion,\n    resourceAllocation: payload.resourceAllocation || 'standard',\n    queuePosition: payload.queuePosition || 0\n  },\n  performance: {\n    validationTime: payload.validation.validationTime,\n    payloadSize: payload.validation.payloadSize,\n    startTimestamp: Date.now()\n  }\n};\n\n// Initialize document processing queue with enhanced metadata\nconst documentQueue = payload.filePaths.map((filePath, index) => ({\n  index: index,\n  filePath: filePath,\n  fileName: filePath.split('/').pop(),\n  status: 'pending',\n  classification: null,\n  confidence: 0,\n  extractedData: {},\n  templatesMatched: [],\n  processingTime: 0,\n  errors: [],\n  priority: payload.metadata.priority,\n  queuePosition: (payload.queuePosition || 0) + index,\n  estimatedProcessingTime: 30000 // 30 seconds base estimate\n}));\n\nreturn {\n  ...payload,\n  jobTracking: jobTracking,\n  documentQueue: documentQueue,\n  currentDocumentIndex: 0,\n  processingStarted: true,\n  enhancedProcessing: true\n};"
+      },
+      "id": "enhanced-job-initializer",
+      "name": "Enhanced Job Initializer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/analyze-document",
+        "options": {
+          "timeout": "={{ $json.jobTracking.timeout * 1000 }}",
+          "redirect": {
+            "redirect": {}
+          },
+          "retry": {
+            "retry": {
+              "retries": "={{ $json.metadata.maxRetries }}"
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"filePaths\": {{ $json.filePaths }}, \"dealName\": \"{{ $json.dealName }}\", \"jobId\": \"{{ $json.jobId }}\", \"analysisDepth\": \"comprehensive\", \"priority\": \"{{ $json.metadata.priority }}\", \"timeout\": {{ $json.jobTracking.timeout }}, \"metadata\": {{ $json.metadata }}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "={{ $credentials.dealDoneApiKey }}"
+            },
+            {
+              "name": "X-Request-ID",
+              "value": "={{ $json.metadata.requestId }}"
+            },
+            {
+              "name": "X-Priority",
+              "value": "={{ $json.metadata.priority }}"
+            },
+            {
+              "name": "X-DealDone-Version",
+              "value": "={{ $json.metadata.dealDoneVersion }}"
+            }
+          ]
+        }
+      },
+      "id": "enhanced-document-processor",
+      "name": "Enhanced Document Processor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1340, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "dealdone-api-key",
+          "name": "DealDone API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Enhanced result processing with comprehensive metrics\nconst payload = $json;\nconst analysisResult = payload.body || payload;\nconst processingEndTime = Date.now();\nconst totalProcessingTime = processingEndTime - payload.jobTracking.startTime;\n\n// Calculate processing statistics\nconst stats = {\n  totalProcessingTime: totalProcessingTime,\n  averageTimePerDocument: totalProcessingTime / (payload.totalDocuments || 1),\n  documentsPerSecond: (payload.totalDocuments || 1) / (totalProcessingTime / 1000),\n  processingEfficiency: payload.jobTracking.timeout > 0 ? \n    (1 - (totalProcessingTime / (payload.jobTracking.timeout * 1000))) : 1,\n  memoryUsage: analysisResult.memoryUsage || 'unknown',\n  cpuUsage: analysisResult.cpuUsage || 'unknown'\n};\n\n// Create comprehensive final result\nconst finalResult = {\n  jobId: payload.jobId,\n  dealName: payload.dealName,\n  workflowType: 'document-analysis-enhanced',\n  status: analysisResult.status || 'completed',\n  processedDocuments: analysisResult.processedDocuments || payload.totalDocuments,\n  totalDocuments: payload.totalDocuments,\n  templatesUpdated: analysisResult.templatesUpdated || [],\n  averageConfidence: analysisResult.averageConfidence || 0.5,\n  processingTimeMs: totalProcessingTime,\n  startTime: payload.jobTracking.startTime,\n  endTime: processingEndTime,\n  priority: payload.metadata.priority,\n  processingPath: payload.processingPath,\n  results: analysisResult,\n  performance: {\n    ...stats,\n    validationTime: payload.validation.validationTime,\n    queueTime: payload.jobTracking.startTime - payload.processedAt,\n    actualTimeout: payload.jobTracking.timeout,\n    timeoutUsage: totalProcessingTime / (payload.jobTracking.timeout * 1000)\n  },\n  metadata: {\n    workflowExecutionId: payload.workflowExecutionId,\n    triggerType: payload.triggerType,\n    priority: payload.metadata.priority,\n    source: payload.metadata.source,\n    userAgent: payload.metadata.userAgent,\n    requestId: payload.metadata.requestId,\n    dealDoneVersion: payload.metadata.dealDoneVersion,\n    resourceAllocation: payload.resourceAllocation,\n    enhancedProcessing: true\n  },\n  timestamp: processingEndTime\n};\n\nreturn finalResult;"
+      },
+      "id": "enhanced-result-processor",
+      "name": "Enhanced Result Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8080/webhook/results",
+        "options": {
+          "timeout": 30000,
+          "retry": {
+            "retry": {
+              "retries": 2
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "={{ $credentials.dealDoneWebhookKey }}"
+            },
+            {
+              "name": "X-Request-ID",
+              "value": "={{ $json.metadata.requestId }}"
+            },
+            {
+              "name": "X-Timestamp",
+              "value": "={{ Math.floor(Date.now() / 1000) }}"
+            },
+            {
+              "name": "X-Processing-Time",
+              "value": "={{ $json.processingTimeMs }}"
+            },
+            {
+              "name": "X-Priority",
+              "value": "={{ $json.priority }}"
+            }
+          ]
+        }
+      },
+      "id": "enhanced-webhook-response",
+      "name": "Enhanced DealDone Webhook Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1780, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "dealdone-webhook-key",
+          "name": "DealDone Webhook Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Enhanced error handler with detailed error analysis\nconst error = $json.error || {};\nconst originalPayload = $json;\nconst errorTime = Date.now();\n\n// Analyze error type and severity\nconst errorAnalysis = {\n  errorType: error.name || 'UNKNOWN_ERROR',\n  errorMessage: error.message || 'Unknown error occurred',\n  errorCode: error.code || 'ERR_UNKNOWN',\n  severity: 'error',\n  recoverable: true,\n  retryRecommended: true,\n  estimatedRetryDelay: 30000 // 30 seconds\n};\n\n// Determine error severity and recovery strategy\nif (error.name === 'TimeoutError') {\n  errorAnalysis.severity = 'warning';\n  errorAnalysis.retryRecommended = true;\n  errorAnalysis.estimatedRetryDelay = 60000; // 1 minute\n} else if (error.name === 'ValidationError') {\n  errorAnalysis.severity = 'error';\n  errorAnalysis.recoverable = false;\n  errorAnalysis.retryRecommended = false;\n} else if (error.name === 'AuthenticationError') {\n  errorAnalysis.severity = 'critical';\n  errorAnalysis.recoverable = false;\n  errorAnalysis.retryRecommended = false;\n}\n\n// Calculate processing time up to error\nconst processingTime = errorTime - (originalPayload.jobTracking?.startTime || errorTime);\n\n// Create comprehensive error response\nconst errorResponse = {\n  jobId: originalPayload.jobId || 'unknown',\n  dealName: originalPayload.dealName || 'unknown',\n  workflowType: 'document-analysis-enhanced',\n  status: 'failed',\n  processedDocuments: 0,\n  totalDocuments: originalPayload.totalDocuments || 0,\n  templatesUpdated: [],\n  averageConfidence: 0,\n  processingTimeMs: processingTime,\n  startTime: originalPayload.jobTracking?.startTime || errorTime,\n  endTime: errorTime,\n  priority: originalPayload.metadata?.priority || 'normal',\n  processingPath: originalPayload.processingPath || 'normal-priority',\n  errors: [{\n    ...errorAnalysis,\n    source: 'n8n-workflow',\n    timestamp: errorTime,\n    nodeId: error.node || 'unknown',\n    step: error.step || originalPayload.currentStep || 'unknown',\n    context: {\n      workflowExecutionId: originalPayload.workflowExecutionId || $workflow.id,\n      totalDocuments: originalPayload.totalDocuments,\n      processingTimeMs: processingTime\n    },\n    suggestions: [\n      errorAnalysis.retryRecommended ? 'Retry the workflow' : 'Check configuration',\n      'Verify document format and accessibility',\n      'Check DealDone API connectivity',\n      'Review authentication credentials'\n    ]\n  }],\n  warnings: [],\n  performance: {\n    failurePoint: originalPayload.currentStep || 'unknown',\n    timeToFailure: processingTime,\n    resourcesConsumed: originalPayload.resourceAllocation || 'unknown'\n  },\n  metadata: {\n    workflowExecutionId: originalPayload.workflowExecutionId || $workflow.id,\n    triggerType: originalPayload.triggerType || 'unknown',\n    priority: originalPayload.metadata?.priority || 'normal',\n    source: originalPayload.metadata?.source || 'unknown',\n    requestId: originalPayload.metadata?.requestId || 'unknown',\n    enhancedProcessing: true,\n    errorAnalysis: errorAnalysis\n  },\n  timestamp: errorTime\n};\n\nreturn errorResponse;"
+      },
+      "id": "enhanced-error-handler",
+      "name": "Enhanced Workflow Error Handler",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 500]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8080/webhook/results",
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "={{ $credentials.dealDoneWebhookKey }}"
+            },
+            {
+              "name": "X-Request-ID",
+              "value": "={{ $json.metadata.requestId }}"
+            },
+            {
+              "name": "X-Timestamp",
+              "value": "={{ Math.floor(Date.now() / 1000) }}"
+            },
+            {
+              "name": "X-Error-Type",
+              "value": "={{ $json.errors[0].errorType }}"
+            },
+            {
+              "name": "X-Priority",
+              "value": "={{ $json.priority }}"
+            }
+          ]
+        }
+      },
+      "id": "enhanced-error-webhook-response",
+      "name": "Enhanced Error Webhook Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1560, 500],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "dealdone-webhook-key",
+          "name": "DealDone Webhook Key"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Enhanced DealDone Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Payload Validator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enhanced Payload Validator": {
+      "main": [
+        [
+          {
+            "node": "Priority Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Priority Router": {
+      "main": [
+        [
+          {
+            "node": "High Priority Processor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Low Priority Processor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normal Priority Processor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "High Priority Processor": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Job Initializer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Low Priority Processor": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Job Initializer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normal Priority Processor": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Job Initializer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enhanced Job Initializer": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Document Processor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enhanced Document Processor": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Result Processor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enhanced Result Processor": {
+      "main": [
+        [
+          {
+            "node": "Enhanced DealDone Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enhanced Workflow Error Handler": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Error Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "dealdone-enhanced-error-handler"
+  },
+  "versionId": "1.1.0",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "dealdone-enhanced-triggers"
+  },
+  "id": "dealdone-enhanced-document-processor",
+  "tags": [
+    {
+      "createdAt": "2024-07-02T20:15:00.000Z",
+      "updatedAt": "2024-07-02T20:15:00.000Z",
+      "id": "dealdone",
+      "name": "DealDone"
+    },
+    {
+      "createdAt": "2024-07-02T20:15:00.000Z",
+      "updatedAt": "2024-07-02T20:15:00.000Z",
+      "id": "document-processing",
+      "name": "Document Processing"
+    },
+    {
+      "createdAt": "2024-07-02T20:15:00.000Z", 
+      "updatedAt": "2024-07-02T20:15:00.000Z",
+      "id": "enhanced-triggers",
+      "name": "Enhanced Triggers"
+    }
+  ]
+} 

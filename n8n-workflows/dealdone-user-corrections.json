@@ -1,0 +1,145 @@
+{
+  "name": "DealDone User Corrections and Learning",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "/user-corrections",
+        "options": {
+          "noResponseBody": false
+        }
+      },
+      "id": "corrections-webhook",
+      "name": "User Corrections Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Correction Analysis\nconst payload = $json;\nconst correction = payload.correction || {};\nconst originalData = payload.originalData || {};\n\n// Analyze correction\nconst correctionAnalysis = {\n  correctionType: determineCorrectionType(correction),\n  impactLevel: assessImpactLevel(correction),\n  learningValue: assessLearningValue(correction),\n  validationStatus: validateCorrection(correction)\n};\n\nfunction determineCorrectionType(correction) {\n  if (correction.stage === 'classification') return 'document-classification';\n  if (correction.stage === 'field-mapping') return 'field-mapping';\n  if (correction.stage === 'template-population') return 'data-population';\n  return 'general-correction';\n}\n\nfunction assessImpactLevel(correction) {\n  const confidenceDiff = Math.abs((correction.userConfidence || 1.0) - (correction.originalConfidence || 0));\n  if (confidenceDiff > 0.5) return 'high';\n  if (confidenceDiff > 0.3) return 'medium';\n  return 'low';\n}\n\nfunction assessLearningValue(correction) {\n  if (correction.stage === 'classification' && correction.originalConfidence < 0.6) return 'high';\n  if (correction.stage === 'field-mapping' && correction.originalConfidence < 0.7) return 'high';\n  return 'medium';\n}\n\nfunction validateCorrection(correction) {\n  if (!correction.correctedValue) return 'invalid-missing-value';\n  if (correction.correctedValue === correction.originalValue) return 'no-change';\n  return 'valid';\n}\n\nconst learningRecord = {\n  correctionId: `correction-${Date.now()}`,\n  userId: payload.userId || 'system',\n  documentId: payload.documentInfo?.documentId,\n  dealName: payload.documentInfo?.dealName,\n  correctionTimestamp: Date.now(),\n  originalResult: {\n    stage: correction.stage,\n    originalValue: correction.originalValue,\n    originalConfidence: correction.originalConfidence || 0\n  },\n  userCorrection: {\n    correctedValue: correction.correctedValue,\n    correctionReason: correction.reason || 'User correction',\n    userConfidence: correction.userConfidence || 1.0\n  },\n  analysis: correctionAnalysis\n};\n\nreturn { ...payload, learningRecord };"
+      },
+      "id": "correction-analysis",
+      "name": "Correction Analysis Engine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "id": "valid",
+              "leftValue": "={{ $json.learningRecord.analysis.validationStatus }}",
+              "rightValue": "valid",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ]
+        }
+      },
+      "id": "validation-router",
+      "name": "Validation Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/store-learning-record",
+        "options": { "timeout": 30000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.learningRecord) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "store-learning",
+      "name": "Store Learning Record",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [800, 350]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/update-confidence-models",
+        "options": { "timeout": 30000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.learningRecord) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "update-models",
+      "name": "Update Confidence Models",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1000, 350]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Invalid Correction Handler\nconst payload = $json;\nconst learningRecord = payload.learningRecord;\n\nconst invalidResponse = {\n  correctionId: learningRecord.correctionId,\n  status: 'rejected',\n  reason: learningRecord.analysis.validationStatus,\n  feedback: learningRecord.analysis.validationStatus === 'invalid-missing-value' ? \n    'Correction must include a corrected value.' : \n    'Correction value is the same as the original value.',\n  timestamp: Date.now()\n};\n\nreturn { ...payload, invalidResponse };"
+      },
+      "id": "invalid-handler",
+      "name": "Invalid Correction Handler",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Learning Completion\nconst payload = $json;\nconst learningRecord = payload.learningRecord;\n\nconst learningCompletion = {\n  correctionId: learningRecord.correctionId,\n  status: 'completed',\n  learningOutcome: {\n    recordStored: true,\n    modelsUpdated: true\n  },\n  userFeedback: {\n    message: 'Thank you for the correction. This will help improve future processing.',\n    impact: 'positive'\n  },\n  completedAt: Date.now()\n};\n\nreturn { learningCompletion, success: true };"
+      },
+      "id": "learning-completion",
+      "name": "Learning Completion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 350]
+    }
+  ],
+  "connections": {
+    "User Corrections Webhook": {
+      "main": [
+        [{ "node": "Correction Analysis Engine", "type": "main", "index": 0 }]
+      ]
+    },
+    "Correction Analysis Engine": {
+      "main": [
+        [{ "node": "Validation Router", "type": "main", "index": 0 }]
+      ]
+    },
+    "Validation Router": {
+      "main": [
+        [{ "node": "Store Learning Record", "type": "main", "index": 0 }],
+        [{ "node": "Invalid Correction Handler", "type": "main", "index": 0 }]
+      ]
+    },
+    "Store Learning Record": {
+      "main": [
+        [{ "node": "Update Confidence Models", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Confidence Models": {
+      "main": [
+        [{ "node": "Learning Completion", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": true,
+  "id": "dealdone-user-corrections"
+} 

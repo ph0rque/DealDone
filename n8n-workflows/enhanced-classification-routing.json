@@ -1,0 +1,169 @@
+{
+  "name": "Enhanced Document Classification and Routing",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Enhanced Pre-Classification with 6 categories\nconst payload = $json;\nconst documents = payload.filePaths || [];\n\nconst documentAnalysis = documents.map((filePath, index) => {\n  const fileName = filePath.split('/').pop();\n  const fileExtension = fileName.split('.').pop().toLowerCase();\n  const pathSegments = filePath.split('/');\n  \n  const initialHints = {\n    isFinancial: /(?:financial|finance|budget|revenue|profit|loss|income|balance|cash|flow|ebitda|valuation)/i.test(filePath),\n    isLegal: /(?:legal|contract|agreement|terms|conditions|compliance|regulatory|license|permit)/i.test(filePath),\n    isOperational: /(?:operation|process|procedure|workflow|staff|employee|hr|human|resource)/i.test(filePath),\n    isDueDiligence: /(?:due.?diligence|dd|audit|review|assessment|analysis)/i.test(filePath),\n    isTechnical: /(?:technical|tech|it|system|software|hardware|infrastructure)/i.test(filePath),\n    isMarketing: /(?:marketing|sales|customer|client|market|brand|promotion)/i.test(filePath)\n  };\n  \n  return {\n    filePath,\n    fileName,\n    fileExtension,\n    initialHints,\n    status: 'pre-analyzed'\n  };\n});\n\nreturn {\n  ...payload,\n  documentAnalysis,\n  totalDocuments: documents.length,\n  processingStep: 'enhanced-pre-classification'\n};"
+      },
+      "id": "enhanced-pre-classifier",
+      "name": "Enhanced Pre-Classifier",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Document Splitter\nconst payload = $json;\nconst documentAnalysis = payload.documentAnalysis || [];\n\nreturn documentAnalysis.map(doc => ({\n  ...payload,\n  currentDocument: doc,\n  batchInfo: {\n    totalDocuments: documentAnalysis.length,\n    batchId: payload.jobId\n  }\n}));"
+      },
+      "id": "document-splitter",
+      "name": "Document Splitter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType", 
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/classify-document-enhanced",
+        "options": { "timeout": 90000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"filePath\": \"{{ $json.currentDocument.filePath }}\", \"fileName\": \"{{ $json.currentDocument.fileName }}\", \"dealName\": \"{{ $json.dealName }}\", \"jobId\": \"{{ $json.jobId }}\", \"initialHints\": {{ $json.currentDocument.initialHints }}, \"classificationDepth\": \"comprehensive\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "ai-classifier",
+      "name": "AI Classifier", 
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Enhanced Classification Processor\nconst payload = $json;\nconst result = payload.body || payload;\nconst doc = payload.currentDocument;\n\nconst aiClass = {\n  primaryCategory: result.primaryCategory || 'general',\n  confidence: result.confidence || 0.5,\n  categories: result.categories || {}\n};\n\n// Calculate composite scores for all 6 categories\nconst compositeScores = {\n  financial: (aiClass.categories.financial || 0) * 0.7 + (doc.initialHints.isFinancial ? 0.3 : 0),\n  legal: (aiClass.categories.legal || 0) * 0.7 + (doc.initialHints.isLegal ? 0.3 : 0),\n  operational: (aiClass.categories.operational || 0) * 0.7 + (doc.initialHints.isOperational ? 0.3 : 0),\n  dueDiligence: (aiClass.categories.dueDiligence || 0) * 0.7 + (doc.initialHints.isDueDiligence ? 0.3 : 0),\n  technical: (aiClass.categories.technical || 0) * 0.7 + (doc.initialHints.isTechnical ? 0.3 : 0),\n  marketing: (aiClass.categories.marketing || 0) * 0.7 + (doc.initialHints.isMarketing ? 0.3 : 0)\n};\n\nconst sortedCategories = Object.entries(compositeScores)\n  .map(([cat, score]) => ({ category: cat, score }))\n  .sort((a, b) => b.score - a.score);\n\nconst finalClass = {\n  primaryCategory: sortedCategories[0]?.category || 'general',\n  primaryScore: sortedCategories[0]?.score || 0,\n  confidence: aiClass.confidence,\n  isHighConfidence: aiClass.confidence >= 0.8,\n  isLowConfidence: aiClass.confidence < 0.5,\n  requiresManualReview: aiClass.confidence < 0.3\n};\n\nconst classifiedDoc = {\n  ...doc,\n  aiClassification: aiClass,\n  compositeScores,\n  finalClassification: finalClass,\n  status: 'classified'\n};\n\nreturn {\n  ...payload,\n  currentDocument: classifiedDoc\n};"
+      },
+      "id": "classification-processor",
+      "name": "Classification Processor",
+      "type": "n8n-nodes-base.code", 
+      "typeVersion": 2,
+      "position": [800, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "id": "needs-review",
+              "leftValue": "={{ $json.currentDocument.finalClassification.requiresManualReview }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true" }
+            }
+          ]
+        }
+      },
+      "id": "confidence-check",
+      "name": "Confidence Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Manual Review Handler\nconst payload = $json;\nconst doc = payload.currentDocument;\n\nreturn {\n  ...payload,\n  currentDocument: {\n    ...doc,\n    status: 'pending-manual-review',\n    reviewReason: 'low-confidence-classification'\n  }\n};"
+      },
+      "id": "manual-review",
+      "name": "Manual Review Handler",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "id": "financial",
+              "leftValue": "={{ $json.currentDocument.finalClassification.primaryCategory }}",
+              "rightValue": "financial",
+              "operator": { "type": "string", "operation": "equals" }
+            },
+            {
+              "id": "legal", 
+              "leftValue": "={{ $json.currentDocument.finalClassification.primaryCategory }}",
+              "rightValue": "legal",
+              "operator": { "type": "string", "operation": "equals" }
+            },
+            {
+              "id": "operational",
+              "leftValue": "={{ $json.currentDocument.finalClassification.primaryCategory }}",
+              "rightValue": "operational", 
+              "operator": { "type": "string", "operation": "equals" }
+            },
+            {
+              "id": "dueDiligence",
+              "leftValue": "={{ $json.currentDocument.finalClassification.primaryCategory }}",
+              "rightValue": "dueDiligence",
+              "operator": { "type": "string", "operation": "equals" }
+            },
+            {
+              "id": "technical",
+              "leftValue": "={{ $json.currentDocument.finalClassification.primaryCategory }}",
+              "rightValue": "technical",
+              "operator": { "type": "string", "operation": "equals" }
+            },
+            {
+              "id": "marketing",
+              "leftValue": "={{ $json.currentDocument.finalClassification.primaryCategory }}",
+              "rightValue": "marketing",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "or"
+        }
+      },
+      "id": "category-router",
+      "name": "Category Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1200, 400]
+    }
+  ],
+  "connections": {
+    "Enhanced Pre-Classifier": {
+      "main": [
+        [{ "node": "Document Splitter", "type": "main", "index": 0 }]
+      ]
+    },
+    "Document Splitter": {
+      "main": [
+        [{ "node": "AI Classifier", "type": "main", "index": 0 }]
+      ]
+    },
+    "AI Classifier": {
+      "main": [
+        [{ "node": "Classification Processor", "type": "main", "index": 0 }]
+      ]
+    },
+    "Classification Processor": {
+      "main": [
+        [{ "node": "Confidence Check", "type": "main", "index": 0 }]
+      ]
+    },
+    "Confidence Check": {
+      "main": [
+        [{ "node": "Manual Review Handler", "type": "main", "index": 0 }],
+        [{ "node": "Category Router", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": true,
+  "id": "enhanced-classification-routing"
+} 

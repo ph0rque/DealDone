@@ -28,19 +28,58 @@ DealDone → Webhook Trigger → Payload Validation → Document Processing → 
 4. Click **Import workflow**
 
 ### 2. Configure Credentials
-Set up the following credentials in n8n:
+Set up the following credentials in n8n for DealDone integration:
 
-#### DealDone API Credentials
-- **Name**: `dealdone-api-credentials`
-- **Type**: HTTP Header Auth
-- **Header Name**: `X-API-Key`
-- **Header Value**: Your DealDone API key
+#### Method 1: Using HTTP Request Node Authentication (Recommended)
+For each HTTP Request node in the workflow:
 
-#### DealDone Webhook Credentials
-- **Name**: `dealdone-webhook-credentials`
-- **Type**: HTTP Header Auth
-- **Header Name**: `X-API-Key`
-- **Header Value**: Your DealDone webhook key
+1. **Document Processor Node**:
+   - Select the "Document Processor" node
+   - In **Authentication** dropdown, select "**Predefined Credential Type**"
+   - Choose "**HTTP Header Auth**" from the list
+   - Create new credentials with:
+     - **Name**: `dealdone-api-key`
+     - **Header Name**: `X-API-Key`
+     - **Header Value**: Your DealDone API key (generated from DealDone's AuthManager)
+
+2. **Webhook Response Node**:
+   - Select the "DealDone Webhook Response" node
+   - In **Authentication** dropdown, select "**Predefined Credential Type**"
+   - Choose "**HTTP Header Auth**" from the list
+   - Create new credentials with:
+     - **Name**: `dealdone-webhook-key`
+     - **Header Name**: `X-API-Key`
+     - **Header Value**: Your DealDone webhook key (generated from DealDone's AuthManager)
+
+#### Method 2: Manual Header Configuration (Current Workflow Setup)
+The imported workflow is currently configured for manual header setup:
+
+1. **Document Processor Node**:
+   - **Authentication** is set to "**Generic Credential Type**" → "**HTTP Header Auth**"
+   - Replace the **X-API-Key** header value `dealdone-api-key` with your actual API key
+   - Or change **Authentication** to "**None**" and configure in **Headers** section
+
+2. **Webhook Response Node**:
+   - **Authentication** is set to "**Generic Credential Type**" → "**HTTP Header Auth**"
+   - Replace the **X-API-Key** header value `dealdone-webhook-key` with your actual webhook key
+   - Or change **Authentication** to "**None**" and configure in **Headers** section
+
+> **Note**: The workflow comes pre-configured with placeholder values. You must replace `dealdone-api-key` and `dealdone-webhook-key` with your actual generated keys.
+
+#### Getting DealDone API Keys
+Generate the required API keys using DealDone's AuthManager:
+
+1. **API Key for Document Processing**:
+   ```javascript
+   // In DealDone, call:
+   const apiKey = await window.go.main.App.GenerateAPIKey("n8n-integration", ["document:read", "document:analyze"], 365);
+   ```
+
+2. **Webhook Key for Result Callbacks**:
+   ```javascript
+   // In DealDone, call:
+   const webhookKey = await window.go.main.App.GenerateWebhookAuthPair("n8n-callback");
+   ```
 
 ### 3. Configure Webhook URLs
 Update the following URLs in the workflow nodes:
@@ -53,7 +92,19 @@ Update the following URLs in the workflow nodes:
 - **URL**: `http://localhost:8080/webhook/results`
 - Update to your DealDone webhook endpoint
 
-### 4. Activate Workflow
+### 4. Test Configuration (Before Activation)
+Before activating the workflow, test your setup:
+
+1. **Test DealDone API Connection**:
+   - In n8n, use the **Execute Workflow** button
+   - Check the Document Processor node execution
+   - Look for authentication errors in the execution log
+
+2. **Verify Webhook Endpoint**:
+   - Check that your DealDone webhook server is accessible
+   - Test with: `curl -X POST http://localhost:8080/webhook/results -H "Content-Type: application/json" -d "{}"`
+
+### 5. Activate Workflow
 1. Click **Active** toggle in the workflow editor
 2. The webhook trigger will become available at:
    ```
@@ -157,9 +208,16 @@ Monitor workflow execution through:
 ### Common Issues
 
 #### 1. Authentication Failures
-- Verify API keys are correctly configured
-- Check credential names match workflow nodes
-- Ensure DealDone webhook server is running
+- **Verify API keys are correctly configured**:
+  - Check that placeholder values (`dealdone-api-key`, `dealdone-webhook-key`) are replaced with actual keys
+  - Ensure API keys are generated from DealDone's AuthManager
+  - Verify key format is correct (should be long alphanumeric strings)
+- **Check credential setup**:
+  - If using Method 1: Verify credential names match exactly in n8n
+  - If using Method 2: Ensure header values are replaced, not credential names
+- **Ensure DealDone webhook server is running**:
+  - Check that DealDone application is running and webhook server is started
+  - Verify webhook endpoints are accessible (test with curl or browser)
 
 #### 2. Connection Timeouts
 - Verify DealDone instance is accessible from n8n

@@ -1,0 +1,194 @@
+{
+  "name": "DealDone Cleanup and Maintenance",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "value": 6 }]
+        }
+      },
+      "id": "cleanup-scheduler",
+      "name": "Cleanup Scheduler",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Cleanup Task Configuration\nconst currentTime = Date.now();\n\nconst cleanupPlan = {\n  executionId: `cleanup-${currentTime}`,\n  scheduledAt: currentTime,\n  tasks: {\n    expiredJobs: {\n      enabled: true,\n      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days\n      action: 'archive'\n    },\n    tempFiles: {\n      enabled: true,\n      maxAge: 24 * 60 * 60 * 1000, // 1 day\n      action: 'delete'\n    },\n    logFiles: {\n      enabled: true,\n      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days\n      action: 'compress'\n    },\n    cacheData: {\n      enabled: true,\n      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days\n      action: 'clear'\n    }\n  }\n};\n\nreturn { cleanupPlan };"
+      },
+      "id": "cleanup-config",
+      "name": "Cleanup Configuration",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/cleanup-expired-jobs",
+        "options": { "timeout": 60000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"maxAge\": {{ $json.cleanupPlan.tasks.expiredJobs.maxAge }}, \"executionId\": \"{{ $json.cleanupPlan.executionId }}\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "cleanup-jobs",
+      "name": "Cleanup Expired Jobs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [600, 350]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/cleanup-temp-files",
+        "options": { "timeout": 60000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"maxAge\": {{ $json.cleanupPlan.tasks.tempFiles.maxAge }}, \"executionId\": \"{{ $json.cleanupPlan.executionId }}\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "cleanup-files",
+      "name": "Cleanup Temp Files",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [600, 450]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/cleanup-cache-data",
+        "options": { "timeout": 30000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"maxAge\": {{ $json.cleanupPlan.tasks.cacheData.maxAge }}, \"executionId\": \"{{ $json.cleanupPlan.executionId }}\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "cleanup-cache",
+      "name": "Cleanup Cache Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [800, 350]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/cleanup-log-files",
+        "options": { "timeout": 90000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"maxAge\": {{ $json.cleanupPlan.tasks.logFiles.maxAge }}, \"executionId\": \"{{ $json.cleanupPlan.executionId }}\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "cleanup-logs",
+      "name": "Cleanup Log Files",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [800, 450]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Cleanup Results Summary\nconst cleanupPlan = $('Cleanup Configuration').first().$json.cleanupPlan;\nconst jobsResult = $('Cleanup Expired Jobs').first().$json;\nconst filesResult = $('Cleanup Temp Files').first().$json;\nconst cacheResult = $('Cleanup Cache Data').first().$json;\nconst logsResult = $('Cleanup Log Files').first().$json;\n\nconst cleanupSummary = {\n  executionId: cleanupPlan.executionId,\n  startTime: cleanupPlan.scheduledAt,\n  endTime: Date.now(),\n  duration: Date.now() - cleanupPlan.scheduledAt,\n  results: {\n    expiredJobs: {\n      processed: jobsResult.jobsArchived || 0,\n      status: jobsResult.status || 'completed'\n    },\n    tempFiles: {\n      deleted: filesResult.filesDeleted || 0,\n      sizeFreed: filesResult.sizeFreed || 0,\n      status: filesResult.status || 'completed'\n    },\n    cacheData: {\n      cleared: cacheResult.entriesCleared || 0,\n      status: cacheResult.status || 'completed'\n    },\n    logFiles: {\n      processed: logsResult.filesProcessed || 0,\n      compressed: logsResult.filesCompressed || 0,\n      status: logsResult.status || 'completed'\n    }\n  },\n  overallStatus: 'completed'\n};\n\nreturn { cleanupSummary };"
+      },
+      "id": "cleanup-summary",
+      "name": "Cleanup Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/send-cleanup-report",
+        "options": { "timeout": 30000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.cleanupSummary) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "send-report",
+      "name": "Send Cleanup Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1200, 400]
+    }
+  ],
+  "connections": {
+    "Cleanup Scheduler": {
+      "main": [
+        [{ "node": "Cleanup Configuration", "type": "main", "index": 0 }]
+      ]
+    },
+    "Cleanup Configuration": {
+      "main": [
+        [
+          { "node": "Cleanup Expired Jobs", "type": "main", "index": 0 },
+          { "node": "Cleanup Temp Files", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Cleanup Expired Jobs": {
+      "main": [
+        [{ "node": "Cleanup Cache Data", "type": "main", "index": 0 }]
+      ]
+    },
+    "Cleanup Temp Files": {
+      "main": [
+        [{ "node": "Cleanup Log Files", "type": "main", "index": 0 }]
+      ]
+    },
+    "Cleanup Cache Data": {
+      "main": [
+        [{ "node": "Cleanup Summary", "type": "main", "index": 0 }]
+      ]
+    },
+    "Cleanup Log Files": {
+      "main": [
+        [{ "node": "Cleanup Summary", "type": "main", "index": 0 }]
+      ]
+    },
+    "Cleanup Summary": {
+      "main": [
+        [{ "node": "Send Cleanup Report", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": true,
+  "id": "dealdone-cleanup"
+} 

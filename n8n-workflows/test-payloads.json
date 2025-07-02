@@ -1,0 +1,399 @@
+{
+  "documentProcessing": {
+    "basicFinancialDocument": {
+      "description": "Standard financial document for basic processing test",
+      "payload": {
+        "jobId": "test-fin-001",
+        "dealName": "Acquisition Alpha",
+        "documentName": "Q3_Financial_Statement.pdf",
+        "documentType": "financial",
+        "documentPath": "/deals/acquisition-alpha/documents/Q3_Financial_Statement.pdf",
+        "priority": "normal",
+        "requestId": "req-fin-001",
+        "userId": "analyst-001",
+        "timestamp": 1703123456789,
+        "metadata": {
+          "fileSize": 2048576,
+          "pageCount": 15,
+          "uploadedBy": "john.analyst@company.com",
+          "confidentialityLevel": "internal"
+        }
+      }
+    },
+    "highPriorityLegalDocument": {
+      "description": "High priority legal document with complex processing needs",
+      "payload": {
+        "jobId": "test-legal-001",
+        "dealName": "Merger Beta",
+        "documentName": "Share_Purchase_Agreement.pdf",
+        "documentType": "legal",
+        "documentPath": "/deals/merger-beta/documents/Share_Purchase_Agreement.pdf",
+        "priority": "high",
+        "requestId": "req-legal-001",
+        "userId": "legal-counsel-001",
+        "timestamp": 1703123456789,
+        "metadata": {
+          "fileSize": 5242880,
+          "pageCount": 45,
+          "uploadedBy": "sarah.legal@company.com",
+          "confidentialityLevel": "confidential",
+          "urgency": "immediate"
+        }
+      }
+    },
+    "batchProcessingMultiple": {
+      "description": "Batch processing multiple documents simultaneously",
+      "payload": {
+        "batchId": "batch-001",
+        "dealName": "Portfolio Deal Gamma",
+        "documents": [
+          {
+            "jobId": "batch-doc-001",
+            "documentName": "Executive_Summary.pdf",
+            "documentType": "operational",
+            "documentPath": "/deals/portfolio-gamma/documents/Executive_Summary.pdf",
+            "priority": "normal"
+          },
+          {
+            "jobId": "batch-doc-002",
+            "documentName": "Due_Diligence_Report.pdf",
+            "documentType": "due-diligence",
+            "documentPath": "/deals/portfolio-gamma/documents/Due_Diligence_Report.pdf",
+            "priority": "high"
+          },
+          {
+            "jobId": "batch-doc-003",
+            "documentName": "Market_Analysis.pdf",
+            "documentType": "marketing",
+            "documentPath": "/deals/portfolio-gamma/documents/Market_Analysis.pdf",
+            "priority": "low"
+          }
+        ],
+        "requestId": "req-batch-001",
+        "userId": "portfolio-manager-001",
+        "timestamp": 1703123456789
+      }
+    },
+    "lowConfidenceDocument": {
+      "description": "Document that should trigger manual review due to low confidence",
+      "payload": {
+        "jobId": "test-lowconf-001",
+        "dealName": "Unclear Deal Delta",
+        "documentName": "Mixed_Content_Document.pdf",
+        "documentType": "unknown",
+        "documentPath": "/deals/unclear-delta/documents/Mixed_Content_Document.pdf",
+        "priority": "normal",
+        "requestId": "req-lowconf-001",
+        "userId": "analyst-002",
+        "timestamp": 1703123456789,
+        "metadata": {
+          "fileSize": 1048576,
+          "pageCount": 8,
+          "uploadedBy": "jane.analyst@company.com",
+          "note": "Document contains mixed content types - classification unclear"
+        }
+      }
+    }
+  },
+  "errorHandling": {
+    "timeoutError": {
+      "description": "Simulates a timeout error during processing",
+      "payload": {
+        "jobId": "error-timeout-001",
+        "dealName": "Test Deal Timeout",
+        "error": {
+          "type": "timeout",
+          "message": "Request timeout after 30 seconds",
+          "stage": "template-population"
+        },
+        "job": {
+          "retryCount": 0,
+          "originalPayload": {
+            "jobId": "error-timeout-001",
+            "dealName": "Test Deal Timeout"
+          }
+        },
+        "failedStage": "template-population"
+      }
+    },
+    "authenticationError": {
+      "description": "Non-retryable authentication error",
+      "payload": {
+        "jobId": "error-auth-001",
+        "dealName": "Test Deal Auth",
+        "error": {
+          "type": "authentication",
+          "message": "API key invalid or expired",
+          "stage": "classification"
+        },
+        "job": {
+          "retryCount": 0,
+          "originalPayload": {
+            "jobId": "error-auth-001",
+            "dealName": "Test Deal Auth"
+          }
+        },
+        "failedStage": "classification"
+      }
+    },
+    "maxRetriesExceeded": {
+      "description": "Job that has exceeded maximum retry attempts",
+      "payload": {
+        "jobId": "error-maxretry-001",
+        "dealName": "Test Deal Max Retry",
+        "documentName": "Problematic_Document.pdf",
+        "error": {
+          "type": "connection",
+          "message": "Connection refused to AI service",
+          "stage": "field-mapping",
+          "timestamp": 1703123456789
+        },
+        "job": {
+          "retryCount": 3,
+          "originalPayload": {
+            "jobId": "error-maxretry-001",
+            "dealName": "Test Deal Max Retry",
+            "documentType": "operational"
+          },
+          "errorHistory": [
+            {
+              "attempt": 1,
+              "error": "Connection timeout",
+              "timestamp": 1703123426789
+            },
+            {
+              "attempt": 2,
+              "error": "Service unavailable",
+              "timestamp": 1703123446789
+            },
+            {
+              "attempt": 3,
+              "error": "Connection refused",
+              "timestamp": 1703123466789
+            }
+          ]
+        },
+        "failedStage": "field-mapping"
+      }
+    },
+    "validationError": {
+      "description": "Data validation error during processing",
+      "payload": {
+        "jobId": "error-validation-001",
+        "dealName": "Test Deal Validation",
+        "documentName": "Corrupted_Data.pdf",
+        "error": {
+          "type": "validation",
+          "message": "Document data format is invalid or corrupted",
+          "stage": "document-processing",
+          "timestamp": 1703123456789,
+          "details": {
+            "validationErrors": [
+              "Invalid PDF structure",
+              "Text extraction failed",
+              "Metadata missing"
+            ]
+          }
+        },
+        "job": {
+          "retryCount": 0,
+          "originalPayload": {
+            "jobId": "error-validation-001",
+            "dealName": "Test Deal Validation",
+            "documentType": "technical"
+          }
+        },
+        "failedStage": "document-processing"
+      }
+    }
+  },
+  "userCorrections": {
+    "validCorrection": {
+      "description": "Valid user correction for classification",
+      "payload": {
+        "userId": "expert-analyst-001",
+        "correction": {
+          "stage": "classification",
+          "originalValue": "legal",
+          "originalConfidence": 0.65,
+          "correctedValue": "financial",
+          "userConfidence": 1.0,
+          "reason": "Document contains financial statements, not legal content"
+        },
+        "documentInfo": {
+          "documentId": "doc-001",
+          "dealName": "Test Deal",
+          "documentType": "mixed"
+        }
+      }
+    },
+    "invalidCorrection": {
+      "description": "Invalid correction missing corrected value",
+      "payload": {
+        "userId": "analyst-003",
+        "correction": {
+          "stage": "template-population",
+          "originalValue": "ABC Corp",
+          "originalConfidence": 0.8,
+          "correctedValue": "",
+          "reason": "The company name extraction is incorrect"
+        },
+        "documentInfo": {
+          "documentId": "doc-002",
+          "dealName": "Test Deal"
+        }
+      }
+    }
+  },
+  "cleanup": {
+    "scheduledCleanup": {
+      "description": "Regular scheduled cleanup trigger",
+      "trigger": "cron",
+      "schedule": "0 */6 * * *",
+      "expectedData": {
+        "cleanupPlan": {
+          "executionId": "cleanup-{timestamp}",
+          "scheduledAt": "{current_timestamp}",
+          "tasks": {
+            "expiredJobs": {
+              "enabled": true,
+              "maxAge": 604800000,
+              "action": "archive"
+            },
+            "tempFiles": {
+              "enabled": true,
+              "maxAge": 86400000,
+              "action": "delete"
+            },
+            "logFiles": {
+              "enabled": true,
+              "maxAge": 2592000000,
+              "action": "compress"
+            },
+            "cacheData": {
+              "enabled": true,
+              "maxAge": 604800000,
+              "action": "clear"
+            }
+          }
+        }
+      }
+    },
+    "manualCleanupTrigger": {
+      "description": "Manual cleanup trigger for testing",
+      "payload": {
+        "triggerType": "manual",
+        "requestedBy": "admin-001",
+        "cleanupScope": "full",
+        "priority": "high",
+        "timestamp": 1703123456789,
+        "customSettings": {
+          "expiredJobsMaxAge": 259200000,
+          "tempFilesMaxAge": 43200000,
+          "forceFull": true
+        }
+      }
+    }
+  },
+  "performanceTesting": {
+    "highVolumeDocuments": {
+      "description": "Multiple documents for load testing",
+      "count": 10,
+      "payloadTemplate": {
+        "jobId": "perf-test-{index}",
+        "dealName": "Performance Test Deal",
+        "documentName": "Document_{index}.pdf",
+        "documentType": "financial",
+        "documentPath": "/deals/performance-test/documents/Document_{index}.pdf",
+        "priority": "normal",
+        "requestId": "req-perf-{index}",
+        "userId": "performance-tester",
+        "timestamp": "{current_timestamp}",
+        "metadata": {
+          "testRun": true,
+          "batchId": "performance-batch-001"
+        }
+      }
+    },
+    "concurrentProcessing": {
+      "description": "Concurrent document processing test",
+      "concurrency": 5,
+      "documents": [
+        {
+          "jobId": "concurrent-001",
+          "documentType": "financial",
+          "expectedProcessingTime": 120000
+        },
+        {
+          "jobId": "concurrent-002",
+          "documentType": "legal",
+          "expectedProcessingTime": 180000
+        },
+        {
+          "jobId": "concurrent-003",
+          "documentType": "operational",
+          "expectedProcessingTime": 90000
+        },
+        {
+          "jobId": "concurrent-004",
+          "documentType": "due-diligence",
+          "expectedProcessingTime": 150000
+        },
+        {
+          "jobId": "concurrent-005",
+          "documentType": "technical",
+          "expectedProcessingTime": 100000
+        }
+      ]
+    }
+  },
+  "integrationTesting": {
+    "endToEndWorkflow": {
+      "description": "Complete end-to-end workflow test",
+      "steps": [
+        {
+          "step": 1,
+          "action": "document-upload",
+          "payload": {
+            "jobId": "e2e-test-001",
+            "dealName": "End-to-End Test Deal",
+            "documentName": "Complete_Test_Document.pdf",
+            "documentType": "financial",
+            "documentPath": "/deals/e2e-test/documents/Complete_Test_Document.pdf"
+          }
+        },
+        {
+          "step": 2,
+          "action": "processing-verification",
+          "expectedResults": {
+            "classification": "financial",
+            "templateCount": 2,
+            "fieldsExtracted": 15,
+            "confidence": 0.85
+          }
+        },
+        {
+          "step": 3,
+          "action": "user-correction",
+          "correctionPayload": {
+            "correction": {
+              "stage": "field-mapping",
+              "fieldName": "netIncome",
+              "originalValue": "12.5M",
+              "correctedValue": "12.8M"
+            }
+          }
+        },
+        {
+          "step": 4,
+          "action": "final-verification",
+          "expectedResults": {
+            "updatedValue": "12.8M",
+            "learningRecorded": true,
+            "confidenceImproved": true
+          }
+        }
+      ]
+    }
+  }
+} 

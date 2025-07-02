@@ -1,0 +1,176 @@
+{
+  "name": "DealDone Error Handler and Recovery",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "/error-handling",
+        "options": {
+          "noResponseBody": false
+        }
+      },
+      "id": "error-webhook-trigger",
+      "name": "Error Handling Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Error Analysis Engine\nconst payload = $json;\nconst errorInfo = payload.error || {};\nconst jobInfo = payload.job || {};\nconst failedStage = payload.failedStage || 'unknown';\n\n// Classify error\nconst errorClassification = {\n  errorType: determineErrorType(errorInfo),\n  severity: determineSeverity(failedStage),\n  isRetryable: determineRetryability(errorInfo),\n  requiredAction: determineRequiredAction(errorInfo)\n};\n\n// Analyze retry status\nconst retryAnalysis = {\n  currentAttempt: jobInfo.retryCount || 0,\n  maxRetries: getMaxRetries(errorClassification.errorType),\n  shouldRetry: shouldAttemptRetry(errorClassification, jobInfo),\n  backoffDelay: calculateBackoffDelay(jobInfo.retryCount || 0)\n};\n\nfunction determineErrorType(errorInfo) {\n  if (errorInfo.message?.includes('timeout')) return 'timeout';\n  if (errorInfo.message?.includes('connection')) return 'connection';\n  if (errorInfo.message?.includes('authentication')) return 'authentication';\n  if (errorInfo.message?.includes('validation')) return 'validation';\n  if (errorInfo.message?.includes('rate limit')) return 'rate-limit';\n  return 'unknown';\n}\n\nfunction determineSeverity(failedStage) {\n  if (['template-population', 'result-aggregation'].includes(failedStage)) return 'high';\n  if (['classification', 'template-discovery'].includes(failedStage)) return 'medium';\n  return 'low';\n}\n\nfunction determineRetryability(errorInfo) {\n  const nonRetryable = ['authentication', 'validation', 'configuration'];\n  return !nonRetryable.some(type => errorInfo.type?.includes(type));\n}\n\nfunction determineRequiredAction(errorInfo) {\n  if (errorInfo.type === 'authentication') return 'refresh-credentials';\n  if (errorInfo.type === 'rate-limit') return 'wait-and-retry';\n  if (errorInfo.type === 'validation') return 'manual-review';\n  return 'standard-retry';\n}\n\nfunction getMaxRetries(errorType) {\n  const limits = { 'timeout': 3, 'connection': 5, 'rate-limit': 3, 'default': 3 };\n  return limits[errorType] || limits.default;\n}\n\nfunction shouldAttemptRetry(classification, jobInfo) {\n  const currentAttempt = jobInfo.retryCount || 0;\n  const maxRetries = getMaxRetries(classification.errorType);\n  return classification.isRetryable && currentAttempt < maxRetries;\n}\n\nfunction calculateBackoffDelay(retryCount) {\n  return Math.min(5000 * Math.pow(3, retryCount), 300000);\n}\n\nconst errorAnalysis = {\n  jobId: jobInfo.jobId || payload.jobId,\n  dealName: jobInfo.dealName || payload.dealName,\n  errorInfo: { ...errorInfo, stage: failedStage },\n  errorClassification,\n  retryAnalysis\n};\n\nreturn { ...payload, errorAnalysis };"
+      },
+      "id": "error-analysis",
+      "name": "Error Analysis Engine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "id": "should-retry",
+              "leftValue": "={{ $json.errorAnalysis.retryAnalysis.shouldRetry }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true" }
+            }
+          ]
+        }
+      },
+      "id": "retry-router",
+      "name": "Retry Decision Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "amount": "={{ $json.errorAnalysis.retryAnalysis.backoffDelay }}",
+        "unit": "ms"
+      },
+      "id": "backoff-delay",
+      "name": "Retry Backoff Delay",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [800, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/retry-document-processing",
+        "options": { "timeout": 180000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"jobId\": \"{{ $json.errorAnalysis.jobId }}\", \"dealName\": \"{{ $json.errorAnalysis.dealName }}\", \"retryAttempt\": {{ $json.errorAnalysis.retryAnalysis.currentAttempt + 1 }}, \"errorType\": \"{{ $json.errorAnalysis.errorClassification.errorType }}\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" },
+            { "name": "X-Retry-Attempt", "value": "={{ $json.errorAnalysis.retryAnalysis.currentAttempt + 1 }}" }
+          ]
+        }
+      },
+      "id": "trigger-retry",
+      "name": "Trigger Document Retry",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Final Error Handling\nconst payload = $json;\nconst errorAnalysis = payload.errorAnalysis;\n\nconst finalResolution = {\n  jobId: errorAnalysis.jobId,\n  dealName: errorAnalysis.dealName,\n  finalStatus: 'failed',\n  errorSummary: {\n    errorType: errorAnalysis.errorClassification.errorType,\n    severity: errorAnalysis.errorClassification.severity,\n    stage: errorAnalysis.errorInfo.stage,\n    description: errorAnalysis.errorInfo.message || 'Unknown error'\n  },\n  resolutionActions: {\n    required: errorAnalysis.errorClassification.requiredAction,\n    manualIntervention: true\n  },\n  notificationTargets: ['document-uploader', 'technical-support', 'deal-team'],\n  archivedAt: Date.now()\n};\n\nreturn { ...payload, finalResolution };"
+      },
+      "id": "final-error-handling",
+      "name": "Final Error Handling",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 500]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/archive-failed-job",
+        "options": { "timeout": 30000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.finalResolution) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "archive-job",
+      "name": "Archive Failed Job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1000, 500]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/send-error-notifications",
+        "options": { "timeout": 30000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"errorResolution\": {{ JSON.stringify($json.finalResolution) }}, \"jobId\": \"{{ $json.finalResolution.jobId }}\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" },
+            { "name": "X-Notification-Type", "value": "critical-error" }
+          ]
+        }
+      },
+      "id": "send-notifications",
+      "name": "Send Error Notifications",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1200, 500]
+    }
+  ],
+  "connections": {
+    "Error Handling Webhook": {
+      "main": [
+        [{ "node": "Error Analysis Engine", "type": "main", "index": 0 }]
+      ]
+    },
+    "Error Analysis Engine": {
+      "main": [
+        [{ "node": "Retry Decision Router", "type": "main", "index": 0 }]
+      ]
+    },
+    "Retry Decision Router": {
+      "main": [
+        [{ "node": "Retry Backoff Delay", "type": "main", "index": 0 }],
+        [{ "node": "Final Error Handling", "type": "main", "index": 0 }]
+      ]
+    },
+    "Retry Backoff Delay": {
+      "main": [
+        [{ "node": "Trigger Document Retry", "type": "main", "index": 0 }]
+      ]
+    },
+    "Final Error Handling": {
+      "main": [
+        [{ "node": "Archive Failed Job", "type": "main", "index": 0 }]
+      ]
+    },
+    "Archive Failed Job": {
+      "main": [
+        [{ "node": "Send Error Notifications", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": true,
+  "id": "dealdone-error-handler"
+} 

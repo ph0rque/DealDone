@@ -1,0 +1,147 @@
+{
+  "name": "Result Aggregation and Notifications",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Result Aggregation Engine\nconst payload = $json;\nconst doc = payload.currentDocument;\n\n// Aggregate processing results\nconst processingResults = {\n  documentInfo: {\n    fileName: doc.fileName,\n    filePath: doc.filePath,\n    processingTime: Date.now() - (payload.metadata?.startTime || Date.now())\n  },\n  classification: {\n    primaryCategory: doc.finalClassification?.primaryCategory || 'unknown',\n    confidence: doc.finalClassification?.confidence || 0\n  },\n  templateDiscovery: {\n    templatesFound: doc.templateDiscovery?.results?.availableTemplates?.length || 0,\n    primaryTemplate: doc.templateDiscovery?.results?.primaryTemplate || null\n  },\n  fieldMapping: {\n    totalFields: doc.fieldMapping?.results?.mappings?.length || 0,\n    qualityScore: doc.fieldMapping?.results?.qualityAnalysis?.overallScore || 0\n  },\n  templatePopulation: {\n    populationCompleted: !!doc.templatePopulation?.results,\n    fieldsPopulated: doc.templatePopulation?.results?.populationAnalysis?.fieldsPopulated || 0,\n    populationQuality: doc.templatePopulation?.results?.overallQualityScore || 0\n  },\n  errors: extractErrors(doc),\n  warnings: extractWarnings(doc)\n};\n\n// Calculate metrics\nconst processingMetrics = {\n  totalProcessingTime: processingResults.documentInfo.processingTime,\n  overallQuality: calculateOverallQuality(processingResults),\n  automationLevel: calculateAutomationLevel(processingResults)\n};\n\n// Determine outcome\nconst processingOutcome = {\n  status: determineStatus(processingResults),\n  quality: processingMetrics.overallQuality,\n  requiresReview: processingMetrics.overallQuality < 0.7,\n  nextSteps: generateNextSteps(processingResults)\n};\n\nfunction extractErrors(doc) {\n  const errors = [];\n  if (doc.finalClassification?.confidence < 0.5) {\n    errors.push({ stage: 'classification', message: 'Low confidence', severity: 'medium' });\n  }\n  if (!doc.templateDiscovery?.results?.primaryTemplate) {\n    errors.push({ stage: 'template-discovery', message: 'No template found', severity: 'high' });\n  }\n  return errors;\n}\n\nfunction extractWarnings(doc) {\n  const warnings = [];\n  if (doc.finalClassification?.confidence < 0.8) {\n    warnings.push({ type: 'confidence', message: 'Classification confidence below optimal' });\n  }\n  return warnings;\n}\n\nfunction calculateOverallQuality(results) {\n  return (\n    results.classification.confidence * 0.3 +\n    results.fieldMapping.qualityScore * 0.4 +\n    results.templatePopulation.populationQuality * 0.3\n  );\n}\n\nfunction calculateAutomationLevel(results) {\n  let score = 0;\n  if (results.classification.confidence >= 0.8) score += 0.25;\n  if (results.templateDiscovery.templatesFound > 0) score += 0.25;\n  if (results.fieldMapping.qualityScore >= 0.8) score += 0.25;\n  if (results.templatePopulation.populationQuality >= 0.8) score += 0.25;\n  return score;\n}\n\nfunction determineStatus(results) {\n  if (results.errors.filter(e => e.severity === 'high').length > 0) return 'failed';\n  if (results.templatePopulation.populationCompleted) return 'completed';\n  return 'partially-completed';\n}\n\nfunction generateNextSteps(results) {\n  const steps = [];\n  if (results.templatePopulation.populationCompleted) {\n    steps.push('Review populated template');\n  } else {\n    steps.push('Complete template population');\n  }\n  if (results.errors.length > 0) {\n    steps.push('Address processing errors');\n  }\n  return steps;\n}\n\nconst aggregatedResults = {\n  processingResults,\n  processingMetrics,\n  processingOutcome,\n  dealContext: {\n    dealName: payload.dealName,\n    documentCategory: processingResults.classification.primaryCategory\n  }\n};\n\nreturn { ...payload, aggregatedResults, readyForNotification: true };"
+      },
+      "id": "result-aggregation",
+      "name": "Result Aggregation Engine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "id": "success",
+              "leftValue": "={{ $json.aggregatedResults.processingOutcome.status }}",
+              "rightValue": "completed",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ]
+        }
+      },
+      "id": "status-router",
+      "name": "Success Status Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Success Notification\nconst payload = $json;\nconst results = payload.aggregatedResults;\n\nconst successNotification = {\n  type: 'processing-success',\n  dealName: results.dealContext.dealName,\n  documentInfo: {\n    fileName: results.processingResults.documentInfo.fileName,\n    category: results.processingResults.classification.primaryCategory,\n    processingTime: Math.round(results.processingMetrics.totalProcessingTime / 1000) + 's'\n  },\n  achievements: {\n    fieldsPopulated: results.processingResults.templatePopulation.fieldsPopulated,\n    qualityScore: Math.round(results.processingOutcome.quality * 100) + '%',\n    automationLevel: Math.round(results.processingMetrics.automationLevel * 100) + '%'\n  },\n  templateInfo: {\n    templateName: results.processingResults.templateDiscovery.primaryTemplate?.name || 'Template',\n    populatedPath: results.processingResults.templatePopulation.populatedTemplate?.filePath\n  },\n  nextSteps: results.processingOutcome.nextSteps,\n  stakeholders: ['document-uploader', 'deal-team']\n};\n\nconst notificationMessages = {\n  email: {\n    subject: `Document Processing Complete: ${results.dealContext.dealName}`,\n    body: `Document ${results.processingResults.documentInfo.fileName} processed successfully.\\n\\nQuality: ${successNotification.achievements.qualityScore}\\nFields: ${successNotification.achievements.fieldsPopulated}\\nTemplate: ${successNotification.templateInfo.templateName}`,\n    recipients: ['uploader@company.com', 'dealteam@company.com']\n  },\n  slack: {\n    channel: '#deal-processing',\n    message: `✅ Document processing completed for *${results.dealContext.dealName}*\\n📄 ${results.processingResults.documentInfo.fileName}\\n⭐ Quality: ${successNotification.achievements.qualityScore}`\n  },\n  dashboard: {\n    type: 'success-alert',\n    title: 'Document Processing Completed',\n    message: `${results.processingResults.documentInfo.fileName} processed with ${successNotification.achievements.qualityScore} quality`\n  }\n};\n\nreturn { ...payload, successNotification, notificationMessages };"
+      },
+      "id": "success-notification",
+      "name": "Success Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 250]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Issue Notification\nconst payload = $json;\nconst results = payload.aggregatedResults;\n\nconst issueNotification = {\n  type: 'processing-issues',\n  dealName: results.dealContext.dealName,\n  documentInfo: {\n    fileName: results.processingResults.documentInfo.fileName,\n    category: results.processingResults.classification.primaryCategory,\n    processingTime: Math.round(results.processingMetrics.totalProcessingTime / 1000) + 's'\n  },\n  issues: {\n    errors: results.processingResults.errors,\n    warnings: results.processingResults.warnings,\n    requiresReview: results.processingOutcome.requiresReview\n  },\n  impact: results.processingResults.errors.filter(e => e.severity === 'high').length > 0 ? 'high' : 'medium',\n  recommendations: [\n    'Manual review required',\n    'Check document quality',\n    'Verify template compatibility'\n  ],\n  stakeholders: ['document-uploader', 'technical-support']\n};\n\nconst issueNotificationMessages = {\n  email: {\n    subject: `⚠️ Document Processing Issues: ${results.dealContext.dealName}`,\n    body: `Processing issues for ${results.processingResults.documentInfo.fileName}\\n\\nErrors: ${issueNotification.issues.errors.length}\\nImpact: ${issueNotification.impact}\\n\\nRecommendations:\\n${issueNotification.recommendations.map(r => '- ' + r).join('\\n')}`,\n    recipients: ['uploader@company.com', 'support@company.com']\n  },\n  slack: {\n    channel: '#deal-processing-alerts',\n    message: `⚠️ Processing issues for *${results.dealContext.dealName}*\\n📄 ${results.processingResults.documentInfo.fileName}\\n❌ ${issueNotification.issues.errors.length} errors`\n  },\n  dashboard: {\n    type: 'error-alert',\n    title: 'Document Processing Issues',\n    message: `Issues with ${results.processingResults.documentInfo.fileName}. Manual review required.`\n  }\n};\n\nreturn { ...payload, issueNotification, issueNotificationMessages };"
+      },
+      "id": "issue-notification",
+      "name": "Issue Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 350]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/send-notifications",
+        "options": { "timeout": 30000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"notifications\": {{ $json.notificationMessages || $json.issueNotificationMessages }}, \"dealName\": \"{{ $json.aggregatedResults.dealContext.dealName }}\", \"jobId\": \"{{ $json.jobId }}\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "notification-sender",
+      "name": "Send Notifications",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [800, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/webhook-response",
+        "options": { "timeout": 15000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"jobId\": \"{{ $json.jobId }}\", \"dealName\": \"{{ $json.aggregatedResults.dealContext.dealName }}\", \"status\": \"{{ $json.aggregatedResults.processingOutcome.status }}\", \"results\": {{ $json.aggregatedResults }}, \"completedAt\": {{ Date.now() }}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" },
+            { "name": "X-Processing-Complete", "value": "true" }
+          ]
+        }
+      },
+      "id": "final-response",
+      "name": "Final Webhook Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Workflow Completion\nconst payload = $json;\nconst results = payload.aggregatedResults;\n\nconst workflowSummary = {\n  jobId: payload.jobId,\n  dealName: results.dealContext.dealName,\n  documentProcessed: results.processingResults.documentInfo.fileName,\n  finalStatus: results.processingOutcome.status,\n  qualityScore: results.processingOutcome.quality,\n  processingTime: results.processingMetrics.totalProcessingTime,\n  automationLevel: results.processingMetrics.automationLevel,\n  templatePopulated: results.processingResults.templatePopulation.populationCompleted,\n  workflowCompletedAt: Date.now()\n};\n\nconsole.log('Workflow completed:', workflowSummary);\n\nreturn {\n  workflowSummary,\n  success: true,\n  message: `Document processing completed for ${results.dealContext.dealName}`\n};"
+      },
+      "id": "workflow-completion",
+      "name": "Workflow Completion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 300]
+    }
+  ],
+  "connections": {
+    "Result Aggregation Engine": {
+      "main": [
+        [{ "node": "Success Status Router", "type": "main", "index": 0 }]
+      ]
+    },
+    "Success Status Router": {
+      "main": [
+        [{ "node": "Success Notification", "type": "main", "index": 0 }],
+        [{ "node": "Issue Notification", "type": "main", "index": 0 }]
+      ]
+    },
+    "Success Notification": {
+      "main": [
+        [{ "node": "Send Notifications", "type": "main", "index": 0 }]
+      ]
+    },
+    "Issue Notification": {
+      "main": [
+        [{ "node": "Send Notifications", "type": "main", "index": 0 }]
+      ]
+    },
+    "Send Notifications": {
+      "main": [
+        [{ "node": "Final Webhook Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Final Webhook Response": {
+      "main": [
+        [{ "node": "Workflow Completion", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": true,
+  "id": "result-aggregation-notifications"
+} 
