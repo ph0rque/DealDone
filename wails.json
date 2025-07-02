@@ -9,5 +9,22 @@
   "author": {
     "name": "Andrew Shindyapin",
     "email": "andrei.shindyapin@gmail.com"
+  },
+  "info": {
+    "companyName": "DealDone",
+    "productName": "DealDone",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright © 2025 Andrew Shindyapin. All rights reserved.",
+    "comments": "Professional deal analysis and document processing application"
+  },
+  "nsRequiresAquaSystemAppearance": false,
+  "build": {
+    "appCategory": "public.app-category.business",
+    "platforms": [
+      {
+        "os": "darwin",
+        "arch": "universal"
+      }
+    ]
   }
 }
