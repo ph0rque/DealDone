@@ -50,6 +50,7 @@ type App struct {
 	authManager             *AuthManager
 	queueManager            *QueueManager
 	conflictResolver        *ConflictResolver
+	workflowRecovery        *WorkflowRecoveryService
 }
 
 // NewApp creates a new App application struct
@@ -235,6 +236,30 @@ func (a *App) startup(ctx context.Context) {
 	appLogger := &AppLogger{}
 
 	a.conflictResolver = NewConflictResolver(conflictStoragePath, appLogger)
+
+	// Setup workflow recovery service
+	workflowRecoveryStoragePath := filepath.Join(configService.GetDealDoneRoot(), "data", "workflow_recovery")
+	os.MkdirAll(workflowRecoveryStoragePath, 0755) // Ensure directory exists
+
+	workflowConfig := WorkflowRecoveryConfig{
+		RetryConfig: RetryConfig{
+			InitialDelay:   2 * time.Second,
+			MaxDelay:       5 * time.Minute,
+			BackoffFactor:  2.0,
+			MaxRetries:     5,
+			Jitter:         true,
+			JitterMaxDelay: 30 * time.Second,
+		},
+		PersistenceInterval:   5 * time.Minute,
+		MaxExecutionHistory:   500,
+		ErrorLogRetention:     7 * 24 * time.Hour,
+		NotificationThreshold: SeverityHigh,
+		EnablePartialResults:  true,
+		StoragePath:           workflowRecoveryStoragePath,
+	}
+
+	workflowNotifier := &AppErrorNotifier{logger: appLogger}
+	a.workflowRecovery = NewWorkflowRecoveryService(workflowConfig, appLogger, workflowNotifier)
 }
 
 // AppLogger implements the Logger interface for ConflictResolver
@@ -254,6 +279,29 @@ func (al *AppLogger) Warn(format string, args ...interface{}) {
 
 func (al *AppLogger) Error(format string, args ...interface{}) {
 	log.Printf("[CONFLICT-ERROR] "+format, args...)
+}
+
+// AppErrorNotifier implements ErrorNotifier for the main application
+type AppErrorNotifier struct {
+	logger Logger
+}
+
+func (aen *AppErrorNotifier) NotifyError(execution *WorkflowExecution, step *WorkflowStep, err error) error {
+	aen.logger.Error("Workflow error in execution %s, step %s: %v", execution.ID, step.ID, err)
+	// TODO: Implement actual notification logic (email, Slack, etc.)
+	return nil
+}
+
+func (aen *AppErrorNotifier) NotifyCriticalFailure(execution *WorkflowExecution, message string) error {
+	aen.logger.Error("Critical workflow failure in execution %s: %s", execution.ID, message)
+	// TODO: Implement actual critical notification logic
+	return nil
+}
+
+func (aen *AppErrorNotifier) NotifyRecoverySuccess(execution *WorkflowExecution, message string) error {
+	aen.logger.Info("Workflow recovery success in execution %s: %s", execution.ID, message)
+	// TODO: Implement actual success notification logic
+	return nil
 }
 
 // GetHomeDirectory returns the user's home directory
@@ -3036,9 +3084,10 @@ func (a *App) RecordProcessingHistory(dealName, documentPath, processingType str
 
 func (a *App) GetAuthManagerConfiguration() (map[string]interface{}, error) {
 	if a.authManager == nil {
-		return nil, fmt.Errorf("authentication manager not initialized")
+		return nil, fmt.Errorf("auth manager not initialized")
 	}
 
+	// Return basic configuration information
 	return map[string]interface{}{
 		"initialized": true,
 		"features": map[string]bool{
@@ -3058,4 +3107,353 @@ func (a *App) GetAuthManagerConfiguration() (map[string]interface{}, error) {
 			"admin:manage",
 		},
 	}, nil
+}
+
+// Workflow Recovery API methods
+
+// CreateWorkflowExecution creates a new workflow execution
+func (a *App) CreateWorkflowExecution(workflowType, dealID, documentID string, steps []map[string]interface{}) (string, error) {
+	if a.workflowRecovery == nil {
+		return "", fmt.Errorf("workflow recovery service not initialized")
+	}
+
+	// Convert map steps to WorkflowStep structs
+	workflowSteps := make([]*WorkflowStep, len(steps))
+	for i, stepMap := range steps {
+		step := &WorkflowStep{
+			ID:           getString(stepMap, "id"),
+			Name:         getString(stepMap, "name"),
+			Status:       StepPending,
+			MaxRetries:   getInt(stepMap, "max_retries", 3),
+			Dependencies: getStringSlice(stepMap, "dependencies"),
+			CanSkip:      getBool(stepMap, "can_skip"),
+			CanRollback:  getBool(stepMap, "can_rollback"),
+			Metadata:     getMap(stepMap, "metadata"),
+		}
+		workflowSteps[i] = step
+	}
+
+	execution, err := a.workflowRecovery.CreateExecution(workflowType, dealID, documentID, workflowSteps)
+	if err != nil {
+		return "", err
+	}
+
+	return execution.ID, nil
+}
+
+// GetWorkflowExecution retrieves a workflow execution by ID
+func (a *App) GetWorkflowExecution(executionID string) (map[string]interface{}, error) {
+	if a.workflowRecovery == nil {
+		return nil, fmt.Errorf("workflow recovery service not initialized")
+	}
+
+	execution, err := a.workflowRecovery.GetExecution(executionID)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"id":                 execution.ID,
+		"workflow_type":      execution.WorkflowType,
+		"deal_id":            execution.DealID,
+		"document_id":        execution.DocumentID,
+		"status":             execution.Status,
+		"start_time":         execution.StartTime,
+		"end_time":           execution.EndTime,
+		"current_step_index": execution.CurrentStepIndex,
+		"total_retries":      execution.TotalRetries,
+		"partial_results":    execution.PartialResults,
+		"recovery_strategy":  string(execution.RecoveryStrategy),
+		"priority":           execution.Priority,
+		"created_by":         execution.CreatedBy,
+		"updated_at":         execution.UpdatedAt,
+		"steps":              convertStepsToMaps(execution.Steps),
+		"error_log":          convertErrorLogToMaps(execution.ErrorLog),
+	}, nil
+}
+
+// GetWorkflowExecutionsByStatus retrieves executions by status
+func (a *App) GetWorkflowExecutionsByStatus(status string) ([]map[string]interface{}, error) {
+	if a.workflowRecovery == nil {
+		return nil, fmt.Errorf("workflow recovery service not initialized")
+	}
+
+	executions := a.workflowRecovery.GetExecutionsByStatus(status)
+
+	result := make([]map[string]interface{}, len(executions))
+	for i, execution := range executions {
+		result[i] = map[string]interface{}{
+			"id":                 execution.ID,
+			"workflow_type":      execution.WorkflowType,
+			"deal_id":            execution.DealID,
+			"document_id":        execution.DocumentID,
+			"status":             execution.Status,
+			"start_time":         execution.StartTime,
+			"end_time":           execution.EndTime,
+			"current_step_index": execution.CurrentStepIndex,
+			"total_retries":      execution.TotalRetries,
+			"recovery_strategy":  string(execution.RecoveryStrategy),
+			"priority":           execution.Priority,
+			"updated_at":         execution.UpdatedAt,
+		}
+	}
+
+	return result, nil
+}
+
+// ExecuteWorkflowExecution executes a workflow execution
+func (a *App) ExecuteWorkflowExecution(executionID string) error {
+	if a.workflowRecovery == nil {
+		return fmt.Errorf("workflow recovery service not initialized")
+	}
+
+	executor := &AppStepExecutor{app: a}
+	return a.workflowRecovery.ExecuteWorkflow(executionID, executor)
+}
+
+// ResumeWorkflowExecution resumes a failed workflow execution
+func (a *App) ResumeWorkflowExecution(executionID string) error {
+	if a.workflowRecovery == nil {
+		return fmt.Errorf("workflow recovery service not initialized")
+	}
+
+	executor := &AppStepExecutor{app: a}
+	return a.workflowRecovery.ResumeWorkflow(executionID, executor)
+}
+
+// GetWorkflowErrorStatistics returns error statistics
+func (a *App) GetWorkflowErrorStatistics() map[string]int {
+	if a.workflowRecovery == nil {
+		return map[string]int{}
+	}
+
+	return a.workflowRecovery.GetErrorStatistics()
+}
+
+// CleanupOldWorkflowExecutions removes old executions
+func (a *App) CleanupOldWorkflowExecutions() error {
+	if a.workflowRecovery == nil {
+		return fmt.Errorf("workflow recovery service not initialized")
+	}
+
+	return a.workflowRecovery.CleanupOldExecutions()
+}
+
+// GetWorkflowRecoveryStatus returns workflow recovery service status
+func (a *App) GetWorkflowRecoveryStatus() map[string]interface{} {
+	if a.workflowRecovery == nil {
+		return map[string]interface{}{
+			"initialized": false,
+			"error":       "workflow recovery service not initialized",
+		}
+	}
+
+	stats := a.workflowRecovery.GetErrorStatistics()
+
+	return map[string]interface{}{
+		"initialized":    true,
+		"error_stats":    stats,
+		"total_errors":   getTotalFromStats(stats),
+		"storage_path":   a.workflowRecovery.config.StoragePath,
+		"max_retries":    a.workflowRecovery.config.RetryConfig.MaxRetries,
+		"initial_delay":  a.workflowRecovery.config.RetryConfig.InitialDelay.String(),
+		"max_delay":      a.workflowRecovery.config.RetryConfig.MaxDelay.String(),
+		"backoff_factor": a.workflowRecovery.config.RetryConfig.BackoffFactor,
+	}
+}
+
+// AppStepExecutor implements StepExecutor for the main application
+type AppStepExecutor struct {
+	app *App
+}
+
+func (ase *AppStepExecutor) ExecuteStep(ctx context.Context, execution *WorkflowExecution, step *WorkflowStep) error {
+	// TODO: Implement actual step execution logic based on step type
+	// This would integrate with existing DealDone functionality
+	log.Printf("Executing step %s of type %v for execution %s", step.ID, step.Metadata["type"], execution.ID)
+
+	// Get step type from metadata
+	stepType, exists := step.Metadata["type"].(string)
+	if !exists {
+		return fmt.Errorf("step %s missing type metadata", step.ID)
+	}
+
+	// Execute based on step type
+	switch stepType {
+	case "document_processing":
+		return ase.executeDocumentProcessingStep(ctx, execution, step)
+	case "template_discovery":
+		return ase.executeTemplateDiscoveryStep(ctx, execution, step)
+	case "field_mapping":
+		return ase.executeFieldMappingStep(ctx, execution, step)
+	case "template_population":
+		return ase.executeTemplatePopulationStep(ctx, execution, step)
+	case "validation":
+		return ase.executeValidationStep(ctx, execution, step)
+	case "notification":
+		return ase.executeNotificationStep(ctx, execution, step)
+	default:
+		// Simulate processing time for unknown types
+		time.Sleep(100 * time.Millisecond)
+		return nil
+	}
+}
+
+func (ase *AppStepExecutor) ValidateStep(step *WorkflowStep) error {
+	// Validate step has required metadata
+	if step.Metadata == nil {
+		return fmt.Errorf("step %s missing metadata", step.ID)
+	}
+
+	if _, exists := step.Metadata["type"]; !exists {
+		return fmt.Errorf("step %s missing type in metadata", step.ID)
+	}
+
+	return nil
+}
+
+func (ase *AppStepExecutor) RollbackStep(ctx context.Context, execution *WorkflowExecution, step *WorkflowStep) error {
+	// TODO: Implement step rollback logic
+	log.Printf("Rolling back step %s for execution %s", step.ID, execution.ID)
+	return nil
+}
+
+// Step execution implementations
+
+func (ase *AppStepExecutor) executeDocumentProcessingStep(ctx context.Context, execution *WorkflowExecution, step *WorkflowStep) error {
+	// TODO: Integrate with existing document processing logic
+	log.Printf("Processing documents for execution %s", execution.ID)
+	time.Sleep(200 * time.Millisecond) // Simulate processing
+	return nil
+}
+
+func (ase *AppStepExecutor) executeTemplateDiscoveryStep(ctx context.Context, execution *WorkflowExecution, step *WorkflowStep) error {
+	// TODO: Integrate with template discovery service
+	log.Printf("Discovering templates for execution %s", execution.ID)
+	time.Sleep(150 * time.Millisecond) // Simulate processing
+	return nil
+}
+
+func (ase *AppStepExecutor) executeFieldMappingStep(ctx context.Context, execution *WorkflowExecution, step *WorkflowStep) error {
+	// TODO: Integrate with field mapping service
+	log.Printf("Mapping fields for execution %s", execution.ID)
+	time.Sleep(100 * time.Millisecond) // Simulate processing
+	return nil
+}
+
+func (ase *AppStepExecutor) executeTemplatePopulationStep(ctx context.Context, execution *WorkflowExecution, step *WorkflowStep) error {
+	// TODO: Integrate with template population service
+	log.Printf("Populating templates for execution %s", execution.ID)
+	time.Sleep(300 * time.Millisecond) // Simulate processing
+	return nil
+}
+
+func (ase *AppStepExecutor) executeValidationStep(ctx context.Context, execution *WorkflowExecution, step *WorkflowStep) error {
+	// TODO: Integrate with validation logic
+	log.Printf("Validating results for execution %s", execution.ID)
+	time.Sleep(100 * time.Millisecond) // Simulate processing
+	return nil
+}
+
+func (ase *AppStepExecutor) executeNotificationStep(ctx context.Context, execution *WorkflowExecution, step *WorkflowStep) error {
+	// TODO: Integrate with notification system
+	log.Printf("Sending notifications for execution %s", execution.ID)
+	time.Sleep(50 * time.Millisecond) // Simulate processing
+	return nil
+}
+
+// Helper functions for data conversion
+
+func getString(m map[string]interface{}, key string) string {
+	if val, ok := m[key].(string); ok {
+		return val
+	}
+	return ""
+}
+
+func getInt(m map[string]interface{}, key string, defaultVal int) int {
+	if val, ok := m[key].(int); ok {
+		return val
+	}
+	if val, ok := m[key].(float64); ok {
+		return int(val)
+	}
+	return defaultVal
+}
+
+func getBool(m map[string]interface{}, key string) bool {
+	if val, ok := m[key].(bool); ok {
+		return val
+	}
+	return false
+}
+
+func getStringSlice(m map[string]interface{}, key string) []string {
+	if val, ok := m[key].([]interface{}); ok {
+		result := make([]string, len(val))
+		for i, v := range val {
+			if str, ok := v.(string); ok {
+				result[i] = str
+			}
+		}
+		return result
+	}
+	return []string{}
+}
+
+func getMap(m map[string]interface{}, key string) map[string]interface{} {
+	if val, ok := m[key].(map[string]interface{}); ok {
+		return val
+	}
+	return make(map[string]interface{})
+}
+
+func convertStepsToMaps(steps []*WorkflowStep) []map[string]interface{} {
+	result := make([]map[string]interface{}, len(steps))
+	for i, step := range steps {
+		result[i] = map[string]interface{}{
+			"id":             step.ID,
+			"name":           step.Name,
+			"status":         string(step.Status),
+			"start_time":     step.StartTime,
+			"end_time":       step.EndTime,
+			"duration":       step.Duration.String(),
+			"retry_count":    step.RetryCount,
+			"max_retries":    step.MaxRetries,
+			"last_error":     step.LastError,
+			"error_severity": string(step.ErrorSeverity),
+			"dependencies":   step.Dependencies,
+			"can_skip":       step.CanSkip,
+			"can_rollback":   step.CanRollback,
+			"rollback_data":  step.RollbackData,
+			"metadata":       step.Metadata,
+		}
+	}
+	return result
+}
+
+func convertErrorLogToMaps(errorLog []ErrorLogEntry) []map[string]interface{} {
+	result := make([]map[string]interface{}, len(errorLog))
+	for i, entry := range errorLog {
+		result[i] = map[string]interface{}{
+			"timestamp":     entry.Timestamp,
+			"step_id":       entry.StepID,
+			"error_type":    entry.ErrorType,
+			"error_message": entry.ErrorMessage,
+			"severity":      string(entry.Severity),
+			"context":       entry.Context,
+			"stack_trace":   entry.StackTrace,
+			"resolved":      entry.Resolved,
+			"resolution":    entry.Resolution,
+		}
+	}
+	return result
+}
+
+func getTotalFromStats(stats map[string]int) int {
+	total := 0
+	for _, count := range stats {
+		total += count
+	}
+	return total
 }
