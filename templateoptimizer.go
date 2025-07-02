@@ -183,15 +183,7 @@ type MappingRule struct {
 	IsActive      bool              `json:"is_active"`
 }
 
-// FieldCorrection represents a field mapping correction
-type FieldCorrection struct {
-	OriginalMapping  string    `json:"original_mapping"`
-	CorrectedMapping string    `json:"corrected_mapping"`
-	UserID           string    `json:"user_id"`
-	Confidence       float64   `json:"confidence"`
-	Timestamp        time.Time `json:"timestamp"`
-	Context          string    `json:"context"`
-}
+// Note: FieldCorrection is defined in types.go
 
 // LayoutOptimizer optimizes template layout based on user interactions
 type LayoutOptimizer struct {
@@ -225,7 +217,7 @@ type UserInteraction struct {
 // FormulaOptimizer optimizes calculation formulas based on correction patterns
 type FormulaOptimizer struct {
 	formulaRules     map[string]*FormulaRule
-	correctionData   map[string][]FormulaCorrection
+	correctionData   map[string][]TemplateFormulaCorrection
 	performanceCache map[string]*FormulaPerformance
 	mutex            sync.RWMutex
 }
@@ -244,8 +236,8 @@ type FormulaRule struct {
 	IsValidated      bool                   `json:"is_validated"`
 }
 
-// FormulaCorrection represents a formula correction
-type FormulaCorrection struct {
+// TemplateFormulaCorrection represents a formula correction (renamed to avoid conflict with correctionprocessor.go)
+type TemplateFormulaCorrection struct {
 	FormulaID        string    `json:"formula_id"`
 	OriginalResult   float64   `json:"original_result"`
 	CorrectedResult  float64   `json:"corrected_result"`
@@ -267,14 +259,14 @@ type FormulaPerformance struct {
 
 // ValidationOptimizer optimizes validation rules based on error patterns
 type ValidationOptimizer struct {
-	validationRules map[string]*ValidationRule
-	errorPatterns   map[string][]ValidationError
+	validationRules map[string]*TemplateValidationRule
+	errorPatterns   map[string][]TemplateValidationError
 	rulePerformance map[string]*ValidationPerformance
 	mutex           sync.RWMutex
 }
 
-// ValidationRule represents a learned validation rule
-type ValidationRule struct {
+// TemplateValidationRule represents a learned validation rule (renamed to avoid conflict with correctionprocessor.go)
+type TemplateValidationRule struct {
 	ID                string                 `json:"id"`
 	RuleType          string                 `json:"rule_type"`
 	Condition         string                 `json:"condition"`
@@ -288,8 +280,8 @@ type ValidationRule struct {
 	IsActive          bool                   `json:"is_active"`
 }
 
-// ValidationError represents a validation error pattern
-type ValidationError struct {
+// TemplateValidationError represents a validation error pattern (renamed to avoid conflict with webhookschemas.go)
+type TemplateValidationError struct {
 	ErrorType       string                 `json:"error_type"`
 	FieldName       string                 `json:"field_name"`
 	ErrorValue      interface{}            `json:"error_value"`
@@ -564,7 +556,7 @@ func NewLayoutOptimizer() *LayoutOptimizer {
 func NewFormulaOptimizer() *FormulaOptimizer {
 	return &FormulaOptimizer{
 		formulaRules:     make(map[string]*FormulaRule),
-		correctionData:   make(map[string][]FormulaCorrection),
+		correctionData:   make(map[string][]TemplateFormulaCorrection),
 		performanceCache: make(map[string]*FormulaPerformance),
 		mutex:            sync.RWMutex{},
 	}
@@ -572,8 +564,8 @@ func NewFormulaOptimizer() *FormulaOptimizer {
 
 func NewValidationOptimizer() *ValidationOptimizer {
 	return &ValidationOptimizer{
-		validationRules: make(map[string]*ValidationRule),
-		errorPatterns:   make(map[string][]ValidationError),
+		validationRules: make(map[string]*TemplateValidationRule),
+		errorPatterns:   make(map[string][]TemplateValidationError),
 		rulePerformance: make(map[string]*ValidationPerformance),
 		mutex:           sync.RWMutex{},
 	}

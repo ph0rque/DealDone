@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"math"
 	"os"
 	"path/filepath"
@@ -1094,47 +1093,253 @@ func (fl *FeedbackLoop) Shutdown() error {
 
 	// Save final state
 	if err := fl.saveState(); err != nil {
-		fl.logger.Error("Failed to save final feedback state during shutdown: %v", err)
-		return err
+		fl.logger.Error("Failed to save final feedback loop state: %v", err)
 	}
 
-	fl.logger.Info("FeedbackLoop shutdown complete")
+	fl.logger.Info("Feedback loop shutdown completed")
 	return nil
 }
 
 func (fl *FeedbackLoop) saveState() error {
-	fl.mutex.RLock()
-	defer fl.mutex.RUnlock()
+	statePath := filepath.Join(fl.config.StoragePath, "feedback_state.json")
+	tempPath := statePath + ".tmp"
 
+	// Create state snapshot
 	state := struct {
 		FeedbackHistory      map[string]*UserFeedback        `json:"feedback_history"`
 		UserFeedbackProfiles map[string]*UserFeedbackProfile `json:"user_feedback_profiles"`
 		LearningAdjustments  map[string]*LearningAdjustment  `json:"learning_adjustments"`
 		Metrics              FeedbackMetrics                 `json:"metrics"`
-		LastSaved            time.Time                       `json:"last_saved"`
+		Timestamp            time.Time                       `json:"timestamp"`
 	}{
 		FeedbackHistory:      fl.feedbackHistory,
 		UserFeedbackProfiles: fl.userFeedbackProfiles,
 		LearningAdjustments:  fl.learningAdjustments,
 		Metrics:              fl.metrics,
-		LastSaved:            time.Now(),
+		Timestamp:            time.Now(),
 	}
 
+	// Marshal to JSON
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to marshal feedback state: %v", err)
+		return fmt.Errorf("failed to marshal state: %w", err)
 	}
 
-	statePath := filepath.Join(fl.config.StoragePath, "feedback_state.json")
-	tempPath := statePath + ".tmp"
-
-	if err := ioutil.WriteFile(tempPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write temp feedback state file: %v", err)
+	// Write to temporary file first
+	if err := os.WriteFile(tempPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write temporary state file: %w", err)
 	}
 
+	// Atomic rename
 	if err := os.Rename(tempPath, statePath); err != nil {
-		return fmt.Errorf("failed to rename temp feedback state file: %v", err)
+		return fmt.Errorf("failed to rename state file: %w", err)
 	}
 
+	fl.logger.Debug("Feedback loop state saved successfully")
 	return nil
+}
+
+// loadState loads the feedback loop state from disk
+func (fl *FeedbackLoop) loadState() error {
+	statePath := filepath.Join(fl.config.StoragePath, "feedback_state.json")
+
+	// Check if state file exists
+	if _, err := os.Stat(statePath); os.IsNotExist(err) {
+		fl.logger.Info("No existing feedback state found, starting fresh")
+		return nil
+	}
+
+	// Read state file
+	data, err := os.ReadFile(statePath)
+	if err != nil {
+		return fmt.Errorf("failed to read state file: %w", err)
+	}
+
+	// Parse state
+	var state struct {
+		FeedbackHistory      map[string]*UserFeedback        `json:"feedback_history"`
+		UserFeedbackProfiles map[string]*UserFeedbackProfile `json:"user_feedback_profiles"`
+		LearningAdjustments  map[string]*LearningAdjustment  `json:"learning_adjustments"`
+		Metrics              FeedbackMetrics                 `json:"metrics"`
+	}
+
+	if err := json.Unmarshal(data, &state); err != nil {
+		return fmt.Errorf("failed to parse state file: %w", err)
+	}
+
+	// Restore state
+	fl.feedbackHistory = state.FeedbackHistory
+	fl.userFeedbackProfiles = state.UserFeedbackProfiles
+	fl.learningAdjustments = state.LearningAdjustments
+	fl.metrics = state.Metrics
+
+	fl.logger.Info("Feedback loop state loaded successfully")
+	return nil
+}
+
+// AnalyzeFeedback analyzes feedback for patterns and anomalies
+func (fa *FeedbackAnalyzer) AnalyzeFeedback(feedback *UserFeedback) []*FeedbackPattern {
+	fa.mutex.Lock()
+	defer fa.mutex.Unlock()
+
+	patterns := make([]*FeedbackPattern, 0)
+
+	// Pattern 1: User correction frequency
+	if feedback.FeedbackType == FeedbackCorrection {
+		patternID := fmt.Sprintf("correction_frequency_%s", feedback.UserID)
+		pattern, exists := fa.patterns[patternID]
+		if !exists {
+			pattern = &FeedbackPattern{
+				ID:          patternID,
+				PatternType: "correction_frequency",
+				Description: fmt.Sprintf("Correction frequency pattern for user %s", feedback.UserID),
+				Frequency:   1,
+				Confidence:  0.5,
+				Context: map[string]interface{}{
+					"user_id": feedback.UserID,
+				},
+				FirstSeen:         time.Now(),
+				LastSeen:          time.Now(),
+				Impact:            0.3,
+				Actionable:        true,
+				RecommendedAction: "review_user_training",
+			}
+			fa.patterns[patternID] = pattern
+		} else {
+			pattern.Frequency++
+			pattern.LastSeen = time.Now()
+			pattern.Confidence = math.Min(1.0, pattern.Confidence+0.1)
+
+			// High frequency corrections might indicate training needs
+			if pattern.Frequency > 10 {
+				pattern.Impact = 0.8
+				pattern.RecommendedAction = "provide_additional_training"
+			}
+		}
+		patterns = append(patterns, pattern)
+	}
+
+	// Pattern 2: Field-specific validation issues
+	if feedback.TargetType == "field" && feedback.FeedbackType == FeedbackValidation {
+		patternID := fmt.Sprintf("field_validation_%s", feedback.TargetID)
+		pattern, exists := fa.patterns[patternID]
+		if !exists {
+			pattern = &FeedbackPattern{
+				ID:          patternID,
+				PatternType: "field_validation",
+				Description: fmt.Sprintf("Validation issues for field %s", feedback.TargetID),
+				Frequency:   1,
+				Confidence:  0.4,
+				Context: map[string]interface{}{
+					"field_id": feedback.TargetID,
+				},
+				FirstSeen:         time.Now(),
+				LastSeen:          time.Now(),
+				Impact:            0.5,
+				Actionable:        true,
+				RecommendedAction: "review_field_validation_rules",
+			}
+			fa.patterns[patternID] = pattern
+		} else {
+			pattern.Frequency++
+			pattern.LastSeen = time.Now()
+			pattern.Confidence = math.Min(1.0, pattern.Confidence+0.15)
+		}
+		patterns = append(patterns, pattern)
+	}
+
+	// Pattern 3: Negative feedback trends
+	if feedback.FeedbackType == FeedbackNegative || feedback.FeedbackType == FeedbackRejection {
+		patternID := "negative_feedback_trend"
+		pattern, exists := fa.patterns[patternID]
+		if !exists {
+			pattern = &FeedbackPattern{
+				ID:                patternID,
+				PatternType:       "negative_trend",
+				Description:       "Increasing negative feedback trend",
+				Frequency:         1,
+				Confidence:        0.3,
+				Context:           map[string]interface{}{},
+				FirstSeen:         time.Now(),
+				LastSeen:          time.Now(),
+				Impact:            0.6,
+				Actionable:        true,
+				RecommendedAction: "investigate_system_issues",
+			}
+			fa.patterns[patternID] = pattern
+		} else {
+			pattern.Frequency++
+			pattern.LastSeen = time.Now()
+			pattern.Confidence = math.Min(1.0, pattern.Confidence+0.1)
+
+			// Alert if negative feedback is increasing rapidly
+			if pattern.Frequency > 5 {
+				pattern.Impact = 0.9
+				pattern.RecommendedAction = "immediate_system_review"
+			}
+		}
+		patterns = append(patterns, pattern)
+	}
+
+	return patterns
+}
+
+// CaptureBaseline captures current baseline metrics
+func (ic *ImpactCalculator) CaptureBaseline() BaselineMetrics {
+	ic.mutex.RLock()
+	defer ic.mutex.RUnlock()
+
+	// Return current baseline metrics
+	baseline := ic.baselineMetrics
+	baseline.LastUpdated = time.Now()
+
+	return baseline
+}
+
+// CalculateImpact calculates the impact between before and after metrics
+func (ic *ImpactCalculator) CalculateImpact(before BaselineMetrics, after BaselineMetrics, feedbackID string) ImpactMeasurement {
+	ic.mutex.Lock()
+	defer ic.mutex.Unlock()
+
+	// Calculate differences
+	accuracyDiff := after.AccuracyScore - before.AccuracyScore
+	learningDiff := after.LearningEffectiveness - before.LearningEffectiveness
+	satisfactionDiff := after.UserSatisfaction - before.UserSatisfaction
+	timeDiff := after.ResponseTime - before.ResponseTime
+
+	// Calculate overall impact score
+	impactScore := (accuracyDiff*0.4 + learningDiff*0.3 + satisfactionDiff*0.2) - (timeDiff.Seconds() * 0.1)
+
+	// Normalize impact score to [-1, 1] range
+	impactScore = math.Max(-1.0, math.Min(1.0, impactScore))
+
+	// Create impact measurement
+	measurement := ImpactMeasurement{
+		ID:              fmt.Sprintf("impact_%s_%d", feedbackID, time.Now().UnixNano()),
+		FeedbackID:      feedbackID,
+		MetricType:      "overall",
+		BeforeValue:     before.AccuracyScore,
+		AfterValue:      after.AccuracyScore,
+		ImpactScore:     impactScore,
+		MeasuredAt:      time.Now(),
+		ConfidenceLevel: 0.8,
+	}
+
+	// Store in history
+	ic.impactHistory = append(ic.impactHistory, measurement)
+
+	// Keep only recent measurements (last 1000)
+	if len(ic.impactHistory) > 1000 {
+		ic.impactHistory = ic.impactHistory[len(ic.impactHistory)-1000:]
+	}
+
+	// Update baseline metrics if impact is positive
+	if impactScore > 0 {
+		ic.baselineMetrics.AccuracyScore = (ic.baselineMetrics.AccuracyScore + after.AccuracyScore) / 2
+		ic.baselineMetrics.LearningEffectiveness = (ic.baselineMetrics.LearningEffectiveness + after.LearningEffectiveness) / 2
+		ic.baselineMetrics.UserSatisfaction = (ic.baselineMetrics.UserSatisfaction + after.UserSatisfaction) / 2
+		ic.baselineMetrics.LastUpdated = time.Now()
+	}
+
+	return measurement
 }
