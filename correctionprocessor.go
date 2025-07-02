@@ -135,7 +135,7 @@ type CorrectionProcessor struct {
 	corrections     map[string]*CorrectionEntry
 	learningModel   *LearningModel
 	patternDetector *PatternDetector
-	ragLearning     *RAGLearningEngine
+	ragLearning     *EnhancedRAGLearningEngine
 	mutex           sync.RWMutex
 	logger          Logger
 	ctx             context.Context
@@ -175,12 +175,30 @@ type SimpleTokenizer struct {
 func NewCorrectionProcessor(config CorrectionDetectionConfig, logger Logger) *CorrectionProcessor {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Create RAG config
+	ragConfig := RAGConfig{
+		EmbeddingDimensions:      128,
+		SimilarityThreshold:      0.7,
+		LearningRate:             0.01,
+		MemoryRetentionDays:      90,
+		MaxKnowledgeNodes:        10000,
+		MaxEmbeddings:            5000,
+		ContextWindowSize:        512,
+		BatchProcessingSize:      100,
+		BackgroundUpdateInterval: 5 * time.Minute,
+		StoragePath:              filepath.Join(config.StoragePath, "rag"),
+		EnableSemanticSearch:     true,
+		EnableKnowledgeGraph:     true,
+		EnableUserProfiling:      true,
+		CacheSize:                1000,
+	}
+
 	processor := &CorrectionProcessor{
 		config:          config,
 		corrections:     make(map[string]*CorrectionEntry),
 		learningModel:   initializeLearningModel(),
 		patternDetector: NewPatternDetector(),
-		ragLearning:     NewRAGLearningEngine(),
+		ragLearning:     NewEnhancedRAGLearningEngine(ragConfig, logger),
 		logger:          logger,
 		ctx:             ctx,
 		cancel:          cancel,
@@ -995,4 +1013,217 @@ func generatePatternID(correction *CorrectionEntry) string {
 	data := fmt.Sprintf("pattern_%s_%s_%d", correction.CorrectionType, correction.FieldName, time.Now().UnixNano())
 	hash := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(hash[:])[:12]
+}
+
+// EnhancedRAGLearningEngine integrates with the advanced RAG engine
+type EnhancedRAGLearningEngine struct {
+	advancedEngine *AdvancedRAGEngine
+	simpleEngine   *RAGLearningEngine // Fallback for basic operations
+	config         RAGConfig
+	mutex          sync.RWMutex
+	logger         Logger
+}
+
+// NewEnhancedRAGLearningEngine creates an enhanced RAG learning engine
+func NewEnhancedRAGLearningEngine(config RAGConfig, logger Logger) *EnhancedRAGLearningEngine {
+	// Default config if none provided
+	if config.EmbeddingDimensions == 0 {
+		config = RAGConfig{
+			EmbeddingDimensions:      128,
+			SimilarityThreshold:      0.7,
+			LearningRate:             0.01,
+			MemoryRetentionDays:      90,
+			MaxKnowledgeNodes:        10000,
+			MaxEmbeddings:            5000,
+			ContextWindowSize:        512,
+			BatchProcessingSize:      100,
+			BackgroundUpdateInterval: 5 * time.Minute,
+			StoragePath:              "/tmp/rag_learning",
+			EnableSemanticSearch:     true,
+			EnableKnowledgeGraph:     true,
+			EnableUserProfiling:      true,
+			CacheSize:                1000,
+		}
+	}
+
+	return &EnhancedRAGLearningEngine{
+		advancedEngine: NewAdvancedRAGEngine(config, logger),
+		simpleEngine:   NewRAGLearningEngine(),
+		config:         config,
+		mutex:          sync.RWMutex{},
+		logger:         logger,
+	}
+}
+
+// ProcessCorrectionWithAdvancedRAG processes a correction using advanced RAG learning
+func (cp *CorrectionProcessor) ProcessCorrectionWithAdvancedRAG(correction *CorrectionEntry, userProfile UserProfile) (*LearningResult, error) {
+	cp.mutex.Lock()
+	defer cp.mutex.Unlock()
+
+	// Create learning context
+	context := LearningContext{
+		DocumentType:        "financial", // Could be determined from correction context
+		DealContext:         correction.DealID,
+		UserProfile:         userProfile,
+		FieldContext:        correction.Context,
+		ProcessingStage:     "correction",
+		HistoricalContext:   []string{correction.ID},
+		ConfidenceThreshold: 0.7,
+	}
+
+	// Process with advanced RAG
+	result, err := cp.ragLearning.advancedEngine.ProcessCorrectionWithRAG(correction, context)
+	if err != nil {
+		cp.logger.Error("Failed to process correction with advanced RAG: %v", err)
+		// Fallback to simple processing
+		return cp.processWithSimpleRAG(correction)
+	}
+
+	// Update our learning model with insights
+	cp.updateLearningModelFromRAG(result)
+
+	return result, nil
+}
+
+// EnhanceDocumentWithLearning applies learned knowledge to enhance document processing
+func (cp *CorrectionProcessor) EnhanceDocumentWithLearning(documentData map[string]interface{}, userProfile UserProfile) (*ProcessingEnhancement, error) {
+	cp.mutex.RLock()
+	defer cp.mutex.RUnlock()
+
+	context := LearningContext{
+		DocumentType:        "financial",
+		DealContext:         "unknown", // Would be provided in real scenario
+		UserProfile:         userProfile,
+		FieldContext:        documentData,
+		ProcessingStage:     "enhancement",
+		ConfidenceThreshold: 0.7,
+	}
+
+	return cp.ragLearning.advancedEngine.EnhanceDocumentProcessing(documentData, context)
+}
+
+// GetSemanticInsights returns semantic insights about corrections and patterns
+func (cp *CorrectionProcessor) GetSemanticInsights(query string, userProfile UserProfile) ([]*KnowledgeRetrievalResult, error) {
+	cp.mutex.RLock()
+	defer cp.mutex.RUnlock()
+
+	context := LearningContext{
+		UserProfile:         userProfile,
+		ConfidenceThreshold: 0.7,
+	}
+
+	return cp.ragLearning.advancedEngine.RetrieveRelevantKnowledge(query, context, 10)
+}
+
+// UpdateUserLearningProfile updates a user's learning profile
+func (cp *CorrectionProcessor) UpdateUserLearningProfile(userID string, updates map[string]interface{}) error {
+	return cp.ragLearning.advancedEngine.UpdateUserLearningProfile(userID, updates)
+}
+
+// GetUserLearningProfile returns a user's learning profile
+func (cp *CorrectionProcessor) GetUserLearningProfile(userID string) (*UserProfile, error) {
+	return cp.ragLearning.advancedEngine.GetUserLearningProfile(userID)
+}
+
+// Helper methods for enhanced functionality
+
+func (cp *CorrectionProcessor) processWithSimpleRAG(correction *CorrectionEntry) (*LearningResult, error) {
+	// Simple fallback processing
+	result := &LearningResult{
+		CorrectionID:    correction.ID,
+		Timestamp:       time.Now(),
+		Insights:        make([]LearningInsight, 0),
+		Recommendations: make([]LearningRecommendation, 0),
+		ConfidenceScore: 0.5,
+		ProcessingTime:  0,
+	}
+
+	// Basic insight
+	insight := LearningInsight{
+		Type:        "basic_correction",
+		Description: fmt.Sprintf("Correction of type %s for field %s", correction.CorrectionType, correction.FieldName),
+		Confidence:  0.6,
+		Impact:      "medium",
+	}
+	result.Insights = append(result.Insights, insight)
+
+	return result, nil
+}
+
+func (cp *CorrectionProcessor) updateLearningModelFromRAG(result *LearningResult) {
+	// Update our learning model based on RAG insights
+	cp.learningModel.LastUpdated = time.Now()
+
+	// Update performance metrics based on insights
+	for _, insight := range result.Insights {
+		if insight.Impact == "high" {
+			cp.learningModel.PerformanceMetrics.LearningEffectiveness += 0.01
+		}
+	}
+
+	// Cap effectiveness at 1.0
+	if cp.learningModel.PerformanceMetrics.LearningEffectiveness > 1.0 {
+		cp.learningModel.PerformanceMetrics.LearningEffectiveness = 1.0
+	}
+}
+
+// Enhanced RAG Learning Engine Methods
+
+func (erag *EnhancedRAGLearningEngine) ProcessCorrection(correction *CorrectionEntry) error {
+	erag.mutex.Lock()
+	defer erag.mutex.Unlock()
+
+	// Create a basic user profile if none exists
+	userProfile := UserProfile{
+		UserID:            correction.UserID,
+		CorrectionStyle:   "standard",
+		CorrectionHistory: make(map[string]int),
+		TrustScore:        0.7,
+		LastActive:        time.Now(),
+	}
+
+	context := LearningContext{
+		DocumentType:        "financial",
+		DealContext:         correction.DealID,
+		UserProfile:         userProfile,
+		ProcessingStage:     "correction",
+		ConfidenceThreshold: 0.7,
+	}
+
+	// Process with advanced engine
+	_, err := erag.advancedEngine.ProcessCorrectionWithRAG(correction, context)
+	if err != nil {
+		// Fallback to simple engine
+		return erag.simpleEngine.ProcessCorrection(correction)
+	}
+
+	return nil
+}
+
+func (erag *EnhancedRAGLearningEngine) EnhanceProcessing(data map[string]interface{}, context ProcessingContext) map[string]interface{} {
+	erag.mutex.RLock()
+	defer erag.mutex.RUnlock()
+
+	// Convert ProcessingContext to LearningContext
+	learningContext := LearningContext{
+		DocumentType:        context.DocumentCategory,
+		ProcessingStage:     "enhancement",
+		ConfidenceThreshold: 0.7,
+	}
+
+	// Try advanced processing
+	enhancement, err := erag.advancedEngine.EnhanceDocumentProcessing(data, learningContext)
+	if err != nil {
+		// Fallback to simple processing
+		return erag.simpleEngine.EnhanceProcessing(data, context)
+	}
+
+	return enhancement.EnhancedData
+}
+
+func (erag *EnhancedRAGLearningEngine) Shutdown() error {
+	if erag.advancedEngine != nil {
+		return erag.advancedEngine.Shutdown()
+	}
+	return nil
 }
