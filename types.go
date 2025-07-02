@@ -608,3 +608,158 @@ type CompatibilityInfo struct {
 	DeprecatedVersions []APIVersion `json:"deprecatedVersions"`
 	MinimumVersion     APIVersion   `json:"minimumVersion"`
 }
+
+// Queue Management Types
+type QueueItem struct {
+	ID                string                 `json:"id"`
+	JobID             string                 `json:"jobId"`
+	DealName          string                 `json:"dealName"`
+	DocumentPath      string                 `json:"documentPath"`
+	DocumentName      string                 `json:"documentName"`
+	Priority          ProcessingPriority     `json:"priority"`
+	QueuedAt          time.Time              `json:"queuedAt"`
+	ProcessingStarted *time.Time             `json:"processingStarted,omitempty"`
+	ProcessingEnded   *time.Time             `json:"processingEnded,omitempty"`
+	Status            QueueItemStatus        `json:"status"`
+	Metadata          map[string]interface{} `json:"metadata"`
+	Dependencies      []string               `json:"dependencies,omitempty"`
+	RetryCount        int                    `json:"retryCount"`
+	LastError         *QueueError            `json:"lastError,omitempty"`
+	EstimatedDuration time.Duration          `json:"estimatedDuration"`
+	ActualDuration    time.Duration          `json:"actualDuration"`
+}
+
+type QueueItemStatus string
+
+const (
+	QueueStatusPending    QueueItemStatus = "pending"
+	QueueStatusProcessing QueueItemStatus = "processing"
+	QueueStatusCompleted  QueueItemStatus = "completed"
+	QueueStatusFailed     QueueItemStatus = "failed"
+	QueueStatusCanceled   QueueItemStatus = "canceled"
+	QueueStatusRetrying   QueueItemStatus = "retrying"
+	QueueStatusBlocked    QueueItemStatus = "blocked"
+)
+
+type QueueError struct {
+	ErrorType   string    `json:"errorType"`
+	Message     string    `json:"message"`
+	OccurredAt  time.Time `json:"occurredAt"`
+	IsRetryable bool      `json:"isRetryable"`
+	Details     string    `json:"details,omitempty"`
+}
+
+type QueueStats struct {
+	TotalItems         int                        `json:"totalItems"`
+	PendingItems       int                        `json:"pendingItems"`
+	ProcessingItems    int                        `json:"processingItems"`
+	CompletedItems     int                        `json:"completedItems"`
+	FailedItems        int                        `json:"failedItems"`
+	StatusBreakdown    map[QueueItemStatus]int    `json:"statusBreakdown"`
+	PriorityBreakdown  map[ProcessingPriority]int `json:"priorityBreakdown"`
+	AverageWaitTime    time.Duration              `json:"averageWaitTime"`
+	AverageProcessTime time.Duration              `json:"averageProcessTime"`
+	ThroughputPerHour  float64                    `json:"throughputPerHour"`
+	LastUpdated        time.Time                  `json:"lastUpdated"`
+}
+
+type QueueQuery struct {
+	DealName  string             `json:"dealName,omitempty"`
+	Status    QueueItemStatus    `json:"status,omitempty"`
+	Priority  ProcessingPriority `json:"priority,omitempty"`
+	Limit     int                `json:"limit,omitempty"`
+	Offset    int                `json:"offset,omitempty"`
+	SortBy    string             `json:"sortBy,omitempty"`
+	SortOrder string             `json:"sortOrder,omitempty"`
+	FromTime  *time.Time         `json:"fromTime,omitempty"`
+	ToTime    *time.Time         `json:"toTime,omitempty"`
+}
+
+type DealFolderMirror struct {
+	DealName       string                    `json:"dealName"`
+	FolderPath     string                    `json:"folderPath"`
+	LastSynced     time.Time                 `json:"lastSynced"`
+	SyncStatus     FolderSyncStatus          `json:"syncStatus"`
+	FileCount      int                       `json:"fileCount"`
+	ProcessedFiles int                       `json:"processedFiles"`
+	FileStructure  map[string]FileStructInfo `json:"fileStructure"`
+	ConflictFiles  []string                  `json:"conflictFiles,omitempty"`
+	SyncErrors     []SyncError               `json:"syncErrors,omitempty"`
+}
+
+type FolderSyncStatus string
+
+const (
+	SyncStatusSynced    FolderSyncStatus = "synced"
+	SyncStatusSyncing   FolderSyncStatus = "syncing"
+	SyncStatusOutOfSync FolderSyncStatus = "out-of-sync"
+	SyncStatusError     FolderSyncStatus = "error"
+	SyncStatusConflict  FolderSyncStatus = "conflict"
+)
+
+type FileStructInfo struct {
+	Path            string    `json:"path"`
+	ModifiedAt      time.Time `json:"modifiedAt"`
+	Size            int64     `json:"size"`
+	Checksum        string    `json:"checksum"`
+	ProcessingState string    `json:"processingState"`
+	QueueItemID     string    `json:"queueItemId,omitempty"`
+}
+
+type SyncError struct {
+	FilePath   string    `json:"filePath"`
+	ErrorType  string    `json:"errorType"`
+	Message    string    `json:"message"`
+	OccurredAt time.Time `json:"occurredAt"`
+	Resolved   bool      `json:"resolved"`
+}
+
+type ProcessingHistory struct {
+	ID              string                 `json:"id"`
+	DealName        string                 `json:"dealName"`
+	DocumentPath    string                 `json:"documentPath"`
+	ProcessingType  string                 `json:"processingType"`
+	StartTime       time.Time              `json:"startTime"`
+	EndTime         *time.Time             `json:"endTime,omitempty"`
+	Status          string                 `json:"status"`
+	Results         map[string]interface{} `json:"results,omitempty"`
+	TemplatesUsed   []string               `json:"templatesUsed,omitempty"`
+	FieldsExtracted int                    `json:"fieldsExtracted"`
+	ConfidenceScore float64                `json:"confidenceScore"`
+	ProcessingNotes string                 `json:"processingNotes,omitempty"`
+	UserCorrections []UserCorrection       `json:"userCorrections,omitempty"`
+	Version         int                    `json:"version"`
+}
+
+type UserCorrection struct {
+	FieldName      string    `json:"fieldName"`
+	OriginalValue  string    `json:"originalValue"`
+	CorrectedValue string    `json:"correctedValue"`
+	CorrectedBy    string    `json:"correctedBy"`
+	CorrectedAt    time.Time `json:"correctedAt"`
+	Confidence     float64   `json:"confidence"`
+	Reason         string    `json:"reason,omitempty"`
+}
+
+type QueueConfiguration struct {
+	MaxConcurrentJobs      int           `json:"maxConcurrentJobs"`
+	MaxRetryAttempts       int           `json:"maxRetryAttempts"`
+	RetryBackoffMultiplier float64       `json:"retryBackoffMultiplier"`
+	MaxRetryBackoff        time.Duration `json:"maxRetryBackoff"`
+	QueueTimeout           time.Duration `json:"queueTimeout"`
+	ProcessingTimeout      time.Duration `json:"processingTimeout"`
+	HealthCheckInterval    time.Duration `json:"healthCheckInterval"`
+	PersistenceInterval    time.Duration `json:"persistenceInterval"`
+	CleanupInterval        time.Duration `json:"cleanupInterval"`
+	MaxHistoryDays         int           `json:"maxHistoryDays"`
+}
+
+type StateSnapshot struct {
+	Timestamp         time.Time                   `json:"timestamp"`
+	QueueItems        []QueueItem                 `json:"queueItems"`
+	DealFolders       map[string]DealFolderMirror `json:"dealFolders"`
+	ProcessingHistory []ProcessingHistory         `json:"processingHistory"`
+	Configuration     QueueConfiguration          `json:"configuration"`
+	Version           string                      `json:"version"`
+	Checksum          string                      `json:"checksum"`
+}

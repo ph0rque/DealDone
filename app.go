@@ -48,6 +48,7 @@ type App struct {
 	n8nIntegration          *N8nIntegrationService
 	schemaValidator         *WebhookSchemaValidator
 	authManager             *AuthManager
+	queueManager            *QueueManager
 }
 
 // NewApp creates a new App application struct
@@ -202,6 +203,16 @@ func (a *App) startup(ctx context.Context) {
 
 	// Initialize webhook handlers
 	a.webhookHandlers = NewWebhookHandlers(a, webhookService)
+
+	// Initialize queue manager
+	queueStoragePath := filepath.Join(configService.GetDealDoneRoot(), "data")
+	os.MkdirAll(queueStoragePath, 0755) // Ensure directory exists
+	a.queueManager = NewQueueManager(queueStoragePath)
+
+	// Start queue manager
+	if err := a.queueManager.Start(); err != nil {
+		fmt.Printf("Warning: Failed to start queue manager: %v\n", err)
+	}
 }
 
 // GetHomeDirectory returns the user's home directory
@@ -2748,6 +2759,240 @@ func (a *App) GenerateHMACSignature(payload string, secret string) (map[string]i
 }
 
 // GetAuthManagerConfiguration returns the current auth manager configuration
+// Queue Management Methods
+
+// EnqueueDocument adds a document to the processing queue
+func (a *App) EnqueueDocument(dealName, documentPath, documentName string, priority string, metadata map[string]interface{}) (map[string]interface{}, error) {
+	if a.queueManager == nil {
+		return nil, fmt.Errorf("queue manager not initialized")
+	}
+
+	var processingPriority ProcessingPriority
+	switch priority {
+	case "high":
+		processingPriority = PriorityHigh
+	case "low":
+		processingPriority = PriorityLow
+	default:
+		processingPriority = PriorityNormal
+	}
+
+	item, err := a.queueManager.EnqueueDocument(dealName, documentPath, documentName, processingPriority, metadata)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"id":                item.ID,
+		"jobId":             item.JobID,
+		"dealName":          item.DealName,
+		"documentPath":      item.DocumentPath,
+		"documentName":      item.DocumentName,
+		"priority":          string(item.Priority),
+		"status":            string(item.Status),
+		"queuedAt":          item.QueuedAt.Format(time.RFC3339),
+		"estimatedDuration": item.EstimatedDuration.String(),
+		"metadata":          item.Metadata,
+	}, nil
+}
+
+// GetQueueStatus returns current queue statistics
+func (a *App) GetQueueStatus() (map[string]interface{}, error) {
+	if a.queueManager == nil {
+		return nil, fmt.Errorf("queue manager not initialized")
+	}
+
+	stats := a.queueManager.GetQueueStatus()
+
+	statusBreakdown := make(map[string]int)
+	for status, count := range stats.StatusBreakdown {
+		statusBreakdown[string(status)] = count
+	}
+
+	priorityBreakdown := make(map[string]int)
+	for priority, count := range stats.PriorityBreakdown {
+		priorityBreakdown[string(priority)] = count
+	}
+
+	return map[string]interface{}{
+		"totalItems":         stats.TotalItems,
+		"pendingItems":       stats.PendingItems,
+		"processingItems":    stats.ProcessingItems,
+		"completedItems":     stats.CompletedItems,
+		"failedItems":        stats.FailedItems,
+		"statusBreakdown":    statusBreakdown,
+		"priorityBreakdown":  priorityBreakdown,
+		"averageWaitTime":    stats.AverageWaitTime.String(),
+		"averageProcessTime": stats.AverageProcessTime.String(),
+		"throughputPerHour":  stats.ThroughputPerHour,
+		"lastUpdated":        stats.LastUpdated.Format(time.RFC3339),
+	}, nil
+}
+
+// QueryQueue searches queue items based on criteria
+func (a *App) QueryQueue(dealName, status, priority string, limit, offset int, sortBy, sortOrder string, fromTime, toTime *time.Time) ([]map[string]interface{}, error) {
+	if a.queueManager == nil {
+		return nil, fmt.Errorf("queue manager not initialized")
+	}
+
+	var queueStatus QueueItemStatus
+	if status != "" {
+		queueStatus = QueueItemStatus(status)
+	}
+
+	var processingPriority ProcessingPriority
+	switch priority {
+	case "high":
+		processingPriority = PriorityHigh
+	case "low":
+		processingPriority = PriorityLow
+	case "normal":
+		processingPriority = PriorityNormal
+	}
+
+	query := QueueQuery{
+		DealName:  dealName,
+		Status:    queueStatus,
+		Priority:  processingPriority,
+		Limit:     limit,
+		Offset:    offset,
+		SortBy:    sortBy,
+		SortOrder: sortOrder,
+		FromTime:  fromTime,
+		ToTime:    toTime,
+	}
+
+	items, err := a.queueManager.QueryQueue(query)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]map[string]interface{}, len(items))
+	for i, item := range items {
+		results[i] = map[string]interface{}{
+			"id":           item.ID,
+			"jobId":        item.JobID,
+			"dealName":     item.DealName,
+			"documentPath": item.DocumentPath,
+			"documentName": item.DocumentName,
+			"priority":     string(item.Priority),
+			"status":       string(item.Status),
+			"queuedAt":     item.QueuedAt.Format(time.RFC3339),
+			"retryCount":   item.RetryCount,
+			"metadata":     item.Metadata,
+		}
+
+		if item.ProcessingStarted != nil {
+			results[i]["processingStarted"] = item.ProcessingStarted.Format(time.RFC3339)
+		}
+		if item.ProcessingEnded != nil {
+			results[i]["processingEnded"] = item.ProcessingEnded.Format(time.RFC3339)
+		}
+		if item.LastError != nil {
+			results[i]["lastError"] = map[string]interface{}{
+				"errorType":   item.LastError.ErrorType,
+				"message":     item.LastError.Message,
+				"occurredAt":  item.LastError.OccurredAt.Format(time.RFC3339),
+				"isRetryable": item.LastError.IsRetryable,
+			}
+		}
+	}
+
+	return results, nil
+}
+
+// SyncDealFolder synchronizes a deal folder structure
+func (a *App) SyncDealFolder(dealName string) error {
+	if a.queueManager == nil {
+		return fmt.Errorf("queue manager not initialized")
+	}
+
+	return a.queueManager.SyncDealFolder(dealName)
+}
+
+// GetDealFolderMirror returns the folder mirror information for a deal
+func (a *App) GetDealFolderMirror(dealName string) (map[string]interface{}, error) {
+	if a.queueManager == nil {
+		return nil, fmt.Errorf("queue manager not initialized")
+	}
+
+	// Access the internal mirror (simplified for frontend)
+	// In production, you'd expose this through a proper method
+	return map[string]interface{}{
+		"dealName":   dealName,
+		"syncStatus": "synced", // Placeholder
+		"fileCount":  0,        // Placeholder
+		"lastSynced": time.Now().Format(time.RFC3339),
+	}, nil
+}
+
+// SynchronizeWorkflowState updates queue item status based on workflow progress
+func (a *App) SynchronizeWorkflowState(jobId, workflowStatus string) error {
+	if a.queueManager == nil {
+		return fmt.Errorf("queue manager not initialized")
+	}
+
+	return a.queueManager.SynchronizeWorkflowState(jobId, workflowStatus)
+}
+
+// GetProcessingHistory returns processing history for a deal
+func (a *App) GetProcessingHistory(dealName string, limit int) ([]map[string]interface{}, error) {
+	if a.queueManager == nil {
+		return nil, fmt.Errorf("queue manager not initialized")
+	}
+
+	history := a.queueManager.GetProcessingHistory(dealName, limit)
+	results := make([]map[string]interface{}, len(history))
+
+	for i, h := range history {
+		results[i] = map[string]interface{}{
+			"id":              h.ID,
+			"dealName":        h.DealName,
+			"documentPath":    h.DocumentPath,
+			"processingType":  h.ProcessingType,
+			"startTime":       h.StartTime.Format(time.RFC3339),
+			"status":          h.Status,
+			"templatesUsed":   h.TemplatesUsed,
+			"fieldsExtracted": h.FieldsExtracted,
+			"confidenceScore": h.ConfidenceScore,
+			"results":         h.Results,
+			"version":         h.Version,
+		}
+
+		if h.EndTime != nil {
+			results[i]["endTime"] = h.EndTime.Format(time.RFC3339)
+		}
+
+		if len(h.UserCorrections) > 0 {
+			corrections := make([]map[string]interface{}, len(h.UserCorrections))
+			for j, c := range h.UserCorrections {
+				corrections[j] = map[string]interface{}{
+					"fieldName":      c.FieldName,
+					"originalValue":  c.OriginalValue,
+					"correctedValue": c.CorrectedValue,
+					"correctedBy":    c.CorrectedBy,
+					"correctedAt":    c.CorrectedAt.Format(time.RFC3339),
+					"confidence":     c.Confidence,
+					"reason":         c.Reason,
+				}
+			}
+			results[i]["userCorrections"] = corrections
+		}
+	}
+
+	return results, nil
+}
+
+// RecordProcessingHistory adds a processing history entry
+func (a *App) RecordProcessingHistory(dealName, documentPath, processingType string, results map[string]interface{}) error {
+	if a.queueManager == nil {
+		return fmt.Errorf("queue manager not initialized")
+	}
+
+	a.queueManager.RecordProcessingHistory(dealName, documentPath, processingType, results)
+	return nil
+}
+
 func (a *App) GetAuthManagerConfiguration() (map[string]interface{}, error) {
 	if a.authManager == nil {
 		return nil, fmt.Errorf("authentication manager not initialized")
