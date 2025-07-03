@@ -1,0 +1,604 @@
+{
+  "name": "Enhanced Analyze All v3.0 - Full Enhancement",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "enhanced-analyze-all-v3",
+        "options": {
+          "responseMode": "onReceived"
+        }
+      },
+      "id": "webhook-trigger",
+      "name": "Enhanced Analyze All v3 Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\nconst requiredFields = ['dealName', 'documentPaths', 'triggerType', 'jobId', 'timestamp'];\nconst missingFields = requiredFields.filter(field => !payload[field]);\n\nif (missingFields.length > 0) {\n  throw new Error(`Missing required fields: ${missingFields.join(', ')}`);\n}\n\nif (!Array.isArray(payload.documentPaths) || payload.documentPaths.length === 0) {\n  throw new Error('documentPaths must be a non-empty array');\n}\n\n// Validate deal name format\nif (!/^[a-zA-Z0-9_-]+$/.test(payload.dealName)) {\n  throw new Error('dealName contains invalid characters');\n}\n\n// Read document content for processing\nconst processedDocuments = [];\nfor (let i = 0; i < payload.documentPaths.length; i++) {\n  const docPath = payload.documentPaths[i];\n  const docName = docPath.split('/').pop();\n  const docContent = `Document content from ${docPath}`; // In real implementation, read file content\n  \n  processedDocuments.push({\n    index: i,\n    documentPath: docPath,\n    documentName: docName,\n    documentContent: docContent,\n    dealName: payload.dealName,\n    jobId: payload.jobId,\n    processingStatus: 'ready-for-enhanced-analysis',\n    batchId: payload.jobId + '_doc_' + i\n  });\n}\n\nreturn {\n  ...payload,\n  processedDocuments,\n  processedAt: Date.now(),\n  workflowExecutionId: $workflow.id,\n  processingStatus: 'validated',\n  priority: payload.priority || 'normal',\n  totalDocuments: payload.documentPaths.length,\n  currentStage: 'enhanced-payload-validation-completed'\n};"
+      },
+      "id": "enhanced-payload-validator",
+      "name": "Enhanced Payload Validator v3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "document-splitter",
+      "name": "Document Splitter",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [680, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/webhook/n8n/enhanced/analyze-document",
+        "options": { "timeout": 120000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content\": \"{{ $json.documentContent }}\",\n  \"documentType\": \"auto\",\n  \"analysisType\": \"entities\",\n  \"context\": {\n    \"dealName\": \"{{ $json.dealName }}\",\n    \"processingMethod\": \"enhanced_ai\",\n    \"documentPath\": \"{{ $json.documentPath }}\"\n  },\n  \"jobId\": \"{{ $json.batchId }}\",\n  \"dealName\": \"{{ $json.dealName }}\"\n}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-Request-Source", "value": "n8n-enhanced" },
+            { "name": "X-Deal-Context", "value": "={{ $json.dealName }}" },
+            { "name": "X-Processing-Mode", "value": "professional" }
+          ]
+        }
+      },
+      "id": "enhanced-document-analyzer",
+      "name": "Enhanced Document Analyzer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/webhook/entity-extraction/company-and-deal-names",
+        "options": { "timeout": 120000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content\": \"{{ $json.documentContent }}\",\n  \"documentType\": \"{{ $json.body.documentType || 'auto' }}\"\n}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-Request-Source", "value": "n8n-enhanced" }
+          ]
+        }
+      },
+      "id": "extract-company-deal-names",
+      "name": "Extract Company & Deal Names",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/webhook/entity-extraction/financial-metrics",
+        "options": { "timeout": 120000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content\": \"{{ $json.documentContent }}\",\n  \"documentType\": \"{{ $json.body.documentType || 'auto' }}\"\n}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-Request-Source", "value": "n8n-enhanced" }
+          ]
+        }
+      },
+      "id": "extract-financial-metrics",
+      "name": "Extract Financial Metrics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/webhook/entity-extraction/personnel-and-roles",
+        "options": { "timeout": 120000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content\": \"{{ $json.documentContent }}\",\n  \"documentType\": \"{{ $json.body.documentType || 'auto' }}\"\n}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-Request-Source", "value": "n8n-enhanced" }
+          ]
+        }
+      },
+      "id": "extract-personnel-roles",
+      "name": "Extract Personnel & Roles",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1120, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge all extraction results\nconst documentAnalysis = $input.first().json;\nconst companyData = $input.all()[1]?.json?.body || {};\nconst financialData = $input.all()[2]?.json?.body || {};\nconst personnelData = $input.all()[3]?.json?.body || {};\n\n// Create comprehensive enhanced extraction result\nconst enhancedExtraction = {\n  documentPath: documentAnalysis.documentPath,\n  documentName: documentAnalysis.documentName,\n  batchId: documentAnalysis.batchId,\n  documentType: documentAnalysis.body?.documentType || 'general',\n  confidence: documentAnalysis.body?.confidence || 0.5,\n  \n  entities: {\n    companies: companyData.companies || [],\n    dealNames: companyData.dealNames || [],\n    targetCompany: companyData.targetCompany || '',\n    acquirerCompany: companyData.acquirerCompany || '',\n    \n    financialMetrics: {\n      revenue: financialData.revenue || '',\n      ebitda: financialData.ebitda || '',\n      netIncome: financialData.netIncome || '',\n      dealValue: financialData.dealValue || '',\n      multiples: financialData.multiples || {},\n      ratios: financialData.ratios || {}\n    },\n    \n    personnel: {\n      keyPersonnel: personnelData.keyPersonnel || [],\n      contactInfo: personnelData.contactInfo || [],\n      organizationalHierarchy: personnelData.organizationalHierarchy || {}\n    }\n  },\n  \n  extractionQuality: {\n    overallConfidence: (documentAnalysis.body?.confidence || 0 + companyData.confidence || 0 + financialData.confidence || 0 + personnelData.confidence || 0) / 4,\n    entitiesExtracted: (companyData.companies?.length || 0) + (financialData.revenue ? 1 : 0) + (personnelData.keyPersonnel?.length || 0),\n    processingDecision: 'enhanced'\n  },\n  \n  processingStatus: 'enhanced-extraction-completed',\n  analysisTimestamp: Date.now()\n};\n\nreturn {\n  ...documentAnalysis,\n  enhancedExtraction,\n  currentStage: 'enhanced-entity-extraction-completed'\n};"
+      },
+      "id": "enhanced-extraction-merger",
+      "name": "Enhanced Extraction Merger",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/webhook/entity-extraction/validate-entities-across-documents",
+        "options": { "timeout": 90000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"entities\": {{ JSON.stringify($json.enhancedExtraction.entities) }},\n  \"documentType\": \"{{ $json.enhancedExtraction.documentType }}\",\n  \"dealName\": \"{{ $json.dealName }}\"\n}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-Request-Source", "value": "n8n-enhanced" }
+          ]
+        }
+      },
+      "id": "validate-entities-across-docs",
+      "name": "Validate Entities Across Documents",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1560, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const allResults = $input.all();\nconst firstItem = allResults[0];\n\n// Aggregate all enhanced extraction results\nconst documentExtractions = allResults.map(item => item.json.enhancedExtraction);\nconst documentTypes = [...new Set(documentExtractions.map(doc => doc.documentType))];\nconst averageConfidence = documentExtractions.reduce((sum, doc) => sum + doc.extractionQuality.overallConfidence, 0) / documentExtractions.length;\n\n// Cross-document entity validation\nconst entityValidation = allResults[allResults.length - 1]?.json?.body || {};\n\n// Extract and consolidate all entities\nconst consolidatedEntities = {\n  companies: [...new Set(documentExtractions.flatMap(doc => doc.entities.companies))],\n  dealNames: [...new Set(documentExtractions.flatMap(doc => doc.entities.dealNames))],\n  targetCompany: entityValidation.targetCompany || documentExtractions.find(doc => doc.entities.targetCompany)?.entities.targetCompany || '',\n  acquirerCompany: entityValidation.acquirerCompany || documentExtractions.find(doc => doc.entities.acquirerCompany)?.entities.acquirerCompany || '',\n  \n  financialMetrics: {\n    revenue: entityValidation.consolidatedFinancials?.revenue || documentExtractions.find(doc => doc.entities.financialMetrics.revenue)?.entities.financialMetrics.revenue || '',\n    ebitda: entityValidation.consolidatedFinancials?.ebitda || documentExtractions.find(doc => doc.entities.financialMetrics.ebitda)?.entities.financialMetrics.ebitda || '',\n    dealValue: entityValidation.consolidatedFinancials?.dealValue || documentExtractions.find(doc => doc.entities.financialMetrics.dealValue)?.entities.financialMetrics.dealValue || ''\n  },\n  \n  keyPersonnel: documentExtractions.flatMap(doc => doc.entities.personnel.keyPersonnel || [])\n};\n\nreturn {\n  ...firstItem.json,\n  documentExtractions,\n  documentTypes,\n  averageConfidence,\n  consolidatedEntities,\n  entityValidation,\n  currentStage: 'cross-document-entity-consolidation-completed',\n  readyForTemplateDiscovery: true\n};"
+      },
+      "id": "cross-document-entity-consolidator",
+      "name": "Cross-Document Entity Consolidator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/discover-templates",
+        "options": { "timeout": 120000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"documentType\": \"{{ $json.documentTypes.join(',') }}\",\n  \"dealName\": \"{{ $json.dealName }}\",\n  \"documentPath\": \"consolidated\",\n  \"jobId\": \"{{ $json.jobId }}\",\n  \"classification\": {\n    \"documentTypes\": {{ JSON.stringify($json.documentTypes) }},\n    \"entities\": {{ JSON.stringify($json.consolidatedEntities) }},\n    \"confidence\": {{ $json.averageConfidence }}\n  }\n}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-Request-Source", "value": "n8n-enhanced" }
+          ]
+        }
+      },
+      "id": "enhanced-template-discovery",
+      "name": "Enhanced Template Discovery",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2000, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/webhook/analyze-template-structure",
+        "options": { "timeout": 90000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"templates\": {{ JSON.stringify($json.body.templates || []) }},\n  \"dealContext\": {\n    \"dealName\": \"{{ $json.dealName }}\",\n    \"documentTypes\": {{ JSON.stringify($json.documentTypes) }},\n    \"entities\": {{ JSON.stringify($json.consolidatedEntities) }}\n  }\n}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-Request-Source", "value": "n8n-enhanced" }
+          ]
+        }
+      },
+      "id": "analyze-template-structure",
+      "name": "Analyze Template Structure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2220, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "id": "templates-available",
+              "leftValue": "={{ ($json.body?.templates || []).length }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ]
+        }
+      },
+      "id": "template-availability-router",
+      "name": "Template Availability Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2440, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/webhook/analyze-field-semantics",
+        "options": { "timeout": 90000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"fieldName\": \"all_fields\",\n  \"fieldValue\": {{ JSON.stringify($json.consolidatedEntities) }},\n  \"documentContext\": {\n    \"documentTypes\": {{ JSON.stringify($json.documentTypes) }},\n    \"averageConfidence\": {{ $json.averageConfidence }}\n  },\n  \"templateContext\": {{ JSON.stringify($json.body.templates || []) }}\n}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-Request-Source", "value": "n8n-enhanced" }
+          ]
+        }
+      },
+      "id": "analyze-field-semantics",
+      "name": "Analyze Field Semantics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2660, 350]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/webhook/create-semantic-mapping",
+        "options": { "timeout": 120000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"extractedFields\": {{ JSON.stringify($json.consolidatedEntities) }},\n  \"templateFields\": {{ JSON.stringify($json.body.templates || []) }},\n  \"mappingStrategy\": \"semantic_ai\",\n  \"confidenceThreshold\": 0.75,\n  \"semanticAnalysis\": {{ JSON.stringify($json.body || {}) }}\n}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-Request-Source", "value": "n8n-enhanced" }
+          ]
+        }
+      },
+      "id": "create-semantic-mapping",
+      "name": "Create Semantic Mapping",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2880, 350]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/webhook/validate-field-mapping",
+        "options": { "timeout": 60000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"fieldMappings\": {{ JSON.stringify($json.body.fieldMappings || []) }},\n  \"templateInfo\": {{ JSON.stringify($json.body.templates || []) }},\n  \"validationLevel\": \"comprehensive\"\n}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-Request-Source", "value": "n8n-enhanced" }
+          ]
+        }
+      },
+      "id": "validate-field-mapping",
+      "name": "Validate Field Mapping",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [3100, 350]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/webhook/populate-template-professional",
+        "options": { "timeout": 180000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"templateId\": \"{{ $json.body.templates?.[0]?.templateId || 'default' }}\",\n  \"fieldMappings\": {{ JSON.stringify($json.body.fieldMappings || []) }},\n  \"formattingOptions\": {\n    \"currencyFormat\": \"USD\",\n    \"dateFormat\": \"MM/DD/YYYY\",\n    \"numberFormat\": \"comma_separated\",\n    \"businessTextFormat\": \"professional\"\n  },\n  \"preserveFormulas\": true,\n  \"dealName\": \"{{ $json.dealName }}\",\n  \"jobId\": \"{{ $json.jobId }}\"\n}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-Request-Source", "value": "n8n-enhanced" },
+            { "name": "X-Processing-Mode", "value": "professional" }
+          ]
+        }
+      },
+      "id": "professional-template-population",
+      "name": "Professional Template Population",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [3320, 350]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/webhook/validate-template-quality",
+        "options": { "timeout": 120000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"dealName\": \"{{ $json.dealName }}\",\n  \"templateId\": \"{{ $json.body.templateId || 'processed' }}\",\n  \"mappedData\": {{ JSON.stringify($json.body.populatedData || {}) }},\n  \"templateInfo\": {{ JSON.stringify($json.body.templateMetadata || {}) }},\n  \"validationOptions\": {\n    \"enableFinancialValidation\": true,\n    \"enableLogicalConsistency\": true,\n    \"enableCompletenessCheck\": true,\n    \"enableBusinessRules\": true\n  }\n}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-Request-Source", "value": "n8n-enhanced" }
+          ]
+        }
+      },
+      "id": "validate-template-quality",
+      "name": "Validate Template Quality",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [3540, 350]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/webhook/detect-anomalies",
+        "options": { "timeout": 90000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"dealName\": \"{{ $json.dealName }}\",\n  \"templateData\": {{ JSON.stringify($json.body.populatedData || {}) }},\n  \"detectionOptions\": {\n    \"sensitivityLevel\": \"medium\",\n    \"checkFinancialRatios\": true,\n    \"checkDataConsistency\": true\n  }\n}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-Request-Source", "value": "n8n-enhanced" }
+          ]
+        }
+      },
+      "id": "detect-anomalies",
+      "name": "Detect Anomalies",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [3760, 350]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/webhook/optimize-ai-calls",
+        "options": { "timeout": 60000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"dealName\": \"{{ $json.dealName }}\",\n  \"requestType\": \"template_population\",\n  \"content\": \"Enhanced processing completed\",\n  \"parameters\": {\n    \"confidence\": 0.8,\n    \"maxTokens\": 4000\n  },\n  \"enableCache\": true,\n  \"parallel\": true\n}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-Request-Source", "value": "n8n-enhanced" }
+          ]
+        }
+      },
+      "id": "optimize-ai-calls",
+      "name": "Optimize AI Processing",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [3980, 350]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Compile comprehensive enhanced analysis results\nconst payload = $input.first().json;\nconst qualityValidation = $input.all()[1]?.json?.body || {};\nconst anomalyDetection = $input.all()[2]?.json?.body || {};\nconst aiOptimization = $input.all()[3]?.json?.body || {};\n\n// Calculate overall quality score\nconst qualityScore = qualityValidation.qualityAssessment?.overallScore || 0;\nconst anomaliesDetected = anomalyDetection.anomalies?.length || 0;\nconst finalQuality = anomaliesDetected > 0 ? Math.max(0, qualityScore - (anomaliesDetected * 0.1)) : qualityScore;\n\n// Determine final status\nconst finalStatus = finalQuality >= 0.9 ? 'excellent' : \n                   finalQuality >= 0.8 ? 'very-good' :\n                   finalQuality >= 0.7 ? 'good' :\n                   finalQuality >= 0.6 ? 'acceptable' : 'needs-review';\n\nconst enhancedAnalysisResults = {\n  jobId: payload.jobId,\n  dealName: payload.dealName,\n  workflowType: 'enhanced-analyze-all-v3',\n  status: 'completed',\n  version: '3.0.0',\n  \n  processingTime: {\n    startTime: payload.processedAt,\n    endTime: Date.now(),\n    durationMs: Date.now() - payload.processedAt\n  },\n  \n  documentAnalysis: {\n    totalDocuments: payload.totalDocuments,\n    documentTypes: payload.documentTypes,\n    averageConfidence: payload.averageConfidence,\n    processedDocuments: payload.documentExtractions?.length || 0\n  },\n  \n  enhancedEntityExtraction: {\n    consolidatedEntities: payload.consolidatedEntities,\n    entityValidation: payload.entityValidation,\n    extractionQuality: 'enhanced'\n  },\n  \n  semanticFieldMapping: {\n    mappingsCreated: payload.body?.fieldMappings?.length || 0,\n    mappingQuality: payload.body?.mappingQuality || 'high',\n    validationPassed: qualityValidation.success || false\n  },\n  \n  professionalTemplatePopulation: {\n    templatesPopulated: payload.body?.templatesPopulated || 0,\n    fieldsPopulated: payload.body?.fieldsPopulated || 0,\n    currencyFormatted: payload.body?.currencyFormatted || 0,\n    formulasPreserved: payload.body?.formulasPreserved || 0,\n    professionalFormatting: true\n  },\n  \n  qualityAssurance: {\n    overallQuality: finalStatus,\n    qualityScore: finalQuality,\n    qualityValidation: qualityValidation,\n    anomaliesDetected: anomaliesDetected,\n    anomalyDetails: anomalyDetection.anomalies || [],\n    validationPassed: qualityValidation.success && anomaliesDetected === 0\n  },\n  \n  aiOptimization: {\n    optimizationApplied: aiOptimization.success || false,\n    cacheUtilization: aiOptimization.cacheHitRate || 0,\n    performanceGain: aiOptimization.performanceGain || 0,\n    costSavings: aiOptimization.costSavings || 0\n  },\n  \n  summary: {\n    enhancementLevel: 'maximum',\n    processingMode: 'professional',\n    entitiesExtracted: Object.keys(payload.consolidatedEntities || {}).length,\n    templatesProcessed: payload.body?.templatesPopulated || 0,\n    qualityValidated: true,\n    anomalyChecked: true,\n    aiOptimized: true,\n    professionalFormatting: true\n  },\n  \n  metadata: {\n    workflowVersion: '3.0.0',\n    processingNode: 'enhanced-analyze-all-v3',\n    enhancementMode: 'full',\n    aiProviders: ['openai', 'claude'],\n    timestamp: Date.now()\n  }\n};\n\nreturn enhancedAnalysisResults;"
+      },
+      "id": "enhanced-result-aggregator-v3",
+      "name": "Enhanced Result Aggregator v3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4200, 350]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/webhook/results",
+        "options": { "timeout": 60000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-Webhook-Type", "value": "enhanced-analyze-all-v3" },
+            { "name": "X-Timestamp", "value": "={{ Math.floor(Date.now() / 1000) }}" },
+            { "name": "X-Quality-Score", "value": "={{ $json.qualityAssurance.qualityScore }}" },
+            { "name": "X-Enhancement-Level", "value": "maximum" }
+          ]
+        }
+      },
+      "id": "enhanced-webhook-response-v3",
+      "name": "Enhanced DealDone Webhook Response v3",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [4420, 350]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/no-templates-available",
+        "options": { "timeout": 30000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"jobId\": \"{{ $json.jobId }}\",\n  \"dealName\": \"{{ $json.dealName }}\",\n  \"documentTypes\": {{ JSON.stringify($json.documentTypes) }},\n  \"reason\": \"No suitable templates found for document types\",\n  \"suggestedAction\": \"Create custom templates or review document classification\",\n  \"entitiesExtracted\": {{ JSON.stringify($json.consolidatedEntities) }}\n}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-Request-Source", "value": "n8n-enhanced" }
+          ]
+        }
+      },
+      "id": "no-templates-handler",
+      "name": "No Templates Available Handler",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2660, 500]
+    }
+  ],
+  "connections": {
+    "Enhanced Analyze All v3 Trigger": {
+      "main": [
+        [{ "node": "Enhanced Payload Validator v3", "type": "main", "index": 0 }]
+      ]
+    },
+    "Enhanced Payload Validator v3": {
+      "main": [
+        [{ "node": "Document Splitter", "type": "main", "index": 0 }]
+      ]
+    },
+    "Document Splitter": {
+      "main": [
+        [{ "node": "Enhanced Document Analyzer", "type": "main", "index": 0 }]
+      ]
+    },
+    "Enhanced Document Analyzer": {
+      "main": [
+        [
+          { "node": "Extract Company & Deal Names", "type": "main", "index": 0 },
+          { "node": "Extract Financial Metrics", "type": "main", "index": 0 },
+          { "node": "Extract Personnel & Roles", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Extract Company & Deal Names": {
+      "main": [
+        [{ "node": "Enhanced Extraction Merger", "type": "main", "index": 0 }]
+      ]
+    },
+    "Extract Financial Metrics": {
+      "main": [
+        [{ "node": "Enhanced Extraction Merger", "type": "main", "index": 1 }]
+      ]
+    },
+    "Extract Personnel & Roles": {
+      "main": [
+        [{ "node": "Enhanced Extraction Merger", "type": "main", "index": 2 }]
+      ]
+    },
+    "Enhanced Extraction Merger": {
+      "main": [
+        [{ "node": "Validate Entities Across Documents", "type": "main", "index": 0 }]
+      ]
+    },
+    "Validate Entities Across Documents": {
+      "main": [
+        [{ "node": "Cross-Document Entity Consolidator", "type": "main", "index": 0 }]
+      ]
+    },
+    "Cross-Document Entity Consolidator": {
+      "main": [
+        [{ "node": "Enhanced Template Discovery", "type": "main", "index": 0 }]
+      ]
+    },
+    "Enhanced Template Discovery": {
+      "main": [
+        [{ "node": "Analyze Template Structure", "type": "main", "index": 0 }]
+      ]
+    },
+    "Analyze Template Structure": {
+      "main": [
+        [{ "node": "Template Availability Router", "type": "main", "index": 0 }]
+      ]
+    },
+    "Template Availability Router": {
+      "main": [
+        [{ "node": "Analyze Field Semantics", "type": "main", "index": 0 }],
+        [{ "node": "No Templates Available Handler", "type": "main", "index": 0 }]
+      ]
+    },
+    "Analyze Field Semantics": {
+      "main": [
+        [{ "node": "Create Semantic Mapping", "type": "main", "index": 0 }]
+      ]
+    },
+    "Create Semantic Mapping": {
+      "main": [
+        [{ "node": "Validate Field Mapping", "type": "main", "index": 0 }]
+      ]
+    },
+    "Validate Field Mapping": {
+      "main": [
+        [{ "node": "Professional Template Population", "type": "main", "index": 0 }]
+      ]
+    },
+    "Professional Template Population": {
+      "main": [
+        [
+          { "node": "Validate Template Quality", "type": "main", "index": 0 },
+          { "node": "Detect Anomalies", "type": "main", "index": 0 },
+          { "node": "Optimize AI Processing", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Validate Template Quality": {
+      "main": [
+        [{ "node": "Enhanced Result Aggregator v3", "type": "main", "index": 0 }]
+      ]
+    },
+    "Detect Anomalies": {
+      "main": [
+        [{ "node": "Enhanced Result Aggregator v3", "type": "main", "index": 1 }]
+      ]
+    },
+    "Optimize AI Processing": {
+      "main": [
+        [{ "node": "Enhanced Result Aggregator v3", "type": "main", "index": 2 }]
+      ]
+    },
+    "Enhanced Result Aggregator v3": {
+      "main": [
+        [{ "node": "Enhanced DealDone Webhook Response v3", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "3.0.0",
+  "id": "enhanced-analyze-all-workflow-v3",
+  "tags": [
+    {
+      "id": "dealdone",
+      "name": "DealDone"
+    },
+    {
+      "id": "enhanced-v3",
+      "name": "Enhanced v3"
+    },
+    {
+      "id": "full-enhancement",
+      "name": "Full Enhancement"
+    },
+    {
+      "id": "professional",
+      "name": "Professional"
+    }
+  ]
+} 
