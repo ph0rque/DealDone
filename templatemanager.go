@@ -147,7 +147,6 @@ func (tm *TemplateManager) CopyTemplateToAnalysis(templatePath, dealName string)
 	// Check if file already exists - if so, skip copying to avoid duplicates
 	if _, err := os.Stat(destPath); err == nil {
 		// File already exists, return the existing path
-		fmt.Printf("DEBUG: Template %s already exists in analysis folder, skipping copy\n", templateName)
 		return destPath, nil
 	}
 
@@ -168,7 +167,6 @@ func (tm *TemplateManager) CopyTemplateToAnalysis(templatePath, dealName string)
 		return "", fmt.Errorf("failed to copy template: %w", err)
 	}
 
-	fmt.Printf("DEBUG: Successfully copied template %s to analysis folder\n", templateName)
 	return destPath, nil
 }
 

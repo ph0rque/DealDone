@@ -477,7 +477,7 @@ func (a *App) ProcessFolder(folderPath string, dealName string) ([]*RoutingResul
 
 	// Trigger template analysis workflow for newly processed documents
 	if len(successfulFiles) > 0 {
-		fmt.Printf("DEBUG: Starting template analysis for %d files in deal %s\n", len(successfulFiles), dealName)
+
 		go func() {
 			templateResult, err := a.AnalyzeDocumentsAndPopulateTemplates(dealName, successfulFiles)
 			if err != nil {
@@ -3906,7 +3906,7 @@ func (a *App) UploadDocuments(dealName string, files map[string][]byte) ([]*Rout
 
 	// Also trigger template analysis workflow for newly processed documents
 	if len(successfulFiles) > 0 {
-		fmt.Printf("DEBUG: Starting template analysis for %d uploaded files in deal %s\n", len(successfulFiles), dealName)
+
 		go func() {
 			templateResult, err := a.AnalyzeDocumentsAndPopulateTemplates(dealName, successfulFiles)
 			if err != nil {
@@ -4058,26 +4058,10 @@ func (a *App) ExtractDocumentFields(mappingParams map[string]interface{}, dealNa
 	}
 
 	// Extract financial data if available
-	financialData, err := a.ExtractFinancialData(filePath)
-	if err != nil {
-		fmt.Printf("DEBUG: Failed to extract financial data from %s: %v\n", filepath.Base(filePath), err)
-	} else if financialData != nil {
-		fmt.Printf("DEBUG: Successfully extracted financial data from %s: Revenue=%.2f, EBITDA=%.2f\n",
-			filepath.Base(filePath), financialData.Revenue, financialData.EBITDA)
-	} else {
-		fmt.Printf("DEBUG: No financial data extracted from %s\n", filepath.Base(filePath))
-	}
+	financialData, _ := a.ExtractFinancialData(filePath)
 
 	// Extract entities
-	entities, err := a.ExtractDocumentEntities(filePath)
-	if err != nil {
-		fmt.Printf("DEBUG: Failed to extract entities from %s: %v\n", filepath.Base(filePath), err)
-	} else if entities != nil {
-		fmt.Printf("DEBUG: Successfully extracted entities from %s: %d organizations, %d dates\n",
-			filepath.Base(filePath), len(entities.Organizations), len(entities.Dates))
-	} else {
-		fmt.Printf("DEBUG: No entities extracted from %s\n", filepath.Base(filePath))
-	}
+	entities, _ := a.ExtractDocumentEntities(filePath)
 
 	// Build extracted fields map
 	extractedFields := make(map[string]interface{})
@@ -4396,7 +4380,6 @@ func (a *App) CopyTemplatesToAnalysis(dealName string, documentTypes []string) (
 
 // AnalyzeDocumentsAndPopulateTemplates performs complete template analysis workflow
 func (a *App) AnalyzeDocumentsAndPopulateTemplates(dealName string, documentPaths []string) (*TemplateAnalysisResult, error) {
-	fmt.Printf("DEBUG: AnalyzeDocumentsAndPopulateTemplates called with %d documents for deal %s\n", len(documentPaths), dealName)
 
 	if len(documentPaths) == 0 {
 		return nil, fmt.Errorf("no documents provided for analysis")
@@ -4409,19 +4392,6 @@ func (a *App) AnalyzeDocumentsAndPopulateTemplates(dealName string, documentPath
 		PopulatedTemplates: make([]string, 0),
 		Errors:             make([]string, 0),
 		StartTime:          time.Now(),
-	}
-
-	// Debug: Check what templates are available
-	if a.templateDiscovery != nil {
-		allTemplates, err := a.templateDiscovery.DiscoverTemplates()
-		if err != nil {
-			fmt.Printf("DEBUG: Failed to discover templates: %v\n", err)
-		} else {
-			fmt.Printf("DEBUG: Found %d total templates:\n", len(allTemplates))
-			for _, template := range allTemplates {
-				fmt.Printf("  - %s (%s) - Category: %s\n", template.Name, template.Type, template.Metadata.Category)
-			}
-		}
 	}
 
 	// Step 1: Analyze each document to determine types
@@ -4447,15 +4417,13 @@ func (a *App) AnalyzeDocumentsAndPopulateTemplates(dealName string, documentPath
 		}
 	}
 
-	fmt.Printf("DEBUG: Document types found: %v\n", uniqueTypes)
-
 	// Step 3: Copy relevant templates to analysis folder
 	copiedTemplates, err := a.CopyTemplatesToAnalysis(dealName, uniqueTypes)
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("Failed to copy templates: %v", err))
 	} else {
 		result.CopiedTemplates = copiedTemplates
-		fmt.Printf("DEBUG: Copied %d templates to analysis folder\n", len(copiedTemplates))
+
 	}
 
 	// Step 4: For each document, try to find and populate relevant templates
@@ -4464,7 +4432,6 @@ func (a *App) AnalyzeDocumentsAndPopulateTemplates(dealName string, documentPath
 		// Skip template files - only process source documents
 		fileName := filepath.Base(docPath)
 		if strings.Contains(strings.ToLower(fileName), "template") {
-			fmt.Printf("DEBUG: Skipping template file: %s\n", fileName)
 			continue
 		}
 
@@ -4496,19 +4463,6 @@ func (a *App) AnalyzeDocumentsAndPopulateTemplates(dealName string, documentPath
 			continue
 		}
 
-		// Debug: Check if templateFields exists in bestTemplate
-		if templateFields, exists := bestTemplate["templateFields"]; exists {
-			if fieldsSlice, ok := templateFields.([]interface{}); ok {
-				fmt.Printf("DEBUG: Template %s has templateFields: %d fields (as []interface{})\n", templateId, len(fieldsSlice))
-			} else if fieldsSlice, ok := templateFields.([]TemplateField); ok {
-				fmt.Printf("DEBUG: Template %s has templateFields: %d fields (as []TemplateField)\n", templateId, len(fieldsSlice))
-			} else {
-				fmt.Printf("DEBUG: Template %s has templateFields but unknown type: %T\n", templateId, templateFields)
-			}
-		} else {
-			fmt.Printf("DEBUG: Template %s missing templateFields!\n", templateId)
-		}
-
 		// Extract fields from document
 		mappingParams := map[string]interface{}{
 			"documentData": map[string]interface{}{
@@ -4525,13 +4479,6 @@ func (a *App) AnalyzeDocumentsAndPopulateTemplates(dealName string, documentPath
 			continue
 		}
 
-		// Debug: Show what fields were extracted
-		if extractedFieldsMap, ok := extractedFields["extractedFields"].(map[string]interface{}); ok {
-			fmt.Printf("DEBUG: Extracted %d fields from %s: %v\n", len(extractedFieldsMap), filepath.Base(docPath), getFieldNames(extractedFieldsMap))
-		} else {
-			fmt.Printf("DEBUG: No extracted fields found for %s\n", filepath.Base(docPath))
-		}
-
 		// Map fields to template
 		mappingResult, err := a.MapTemplateFields(mappingParams, extractedFields["extractedFields"].(map[string]interface{}))
 		if err != nil {
@@ -4541,14 +4488,8 @@ func (a *App) AnalyzeDocumentsAndPopulateTemplates(dealName string, documentPath
 
 		mappings, ok := mappingResult["mappings"].([]map[string]interface{})
 		if !ok || len(mappings) == 0 {
-			fmt.Printf("DEBUG: No field mappings found for %s. Template has %d fields, document has %d extracted fields\n",
-				filepath.Base(docPath),
-				len(bestTemplate["templateFields"].([]interface{})),
-				len(extractedFields["extractedFields"].(map[string]interface{})))
 			result.Errors = append(result.Errors, fmt.Sprintf("No field mappings found for %s", docPath))
 			continue
-		} else {
-			fmt.Printf("DEBUG: Found %d field mappings for %s\n", len(mappings), filepath.Base(docPath))
 		}
 
 		// Populate template with mapped data
@@ -4568,15 +4509,6 @@ func (a *App) AnalyzeDocumentsAndPopulateTemplates(dealName string, documentPath
 	result.Success = len(result.PopulatedTemplates) > 0
 
 	return result, nil
-}
-
-// getFieldNames extracts field names from extracted fields map for debugging
-func getFieldNames(extractedFields map[string]interface{}) []string {
-	names := make([]string, 0, len(extractedFields))
-	for name := range extractedFields {
-		names = append(names, name)
-	}
-	return names
 }
 
 // TemplateAnalysisResult represents the result of template analysis workflow
