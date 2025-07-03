@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -116,10 +117,10 @@ func NewN8nIntegrationService(config *N8nConfig, jobTracker *JobTracker, webhook
 	// Initialize workflow endpoints if not provided
 	if config.WorkflowEndpoints == nil {
 		config.WorkflowEndpoints = map[string]string{
-			"document-analysis": "/webhook/dealdone/document-analysis",
-			"error-handling":    "/webhook/dealdone/error-handling",
-			"user-corrections":  "/webhook/dealdone/user-corrections",
-			"cleanup":           "/webhook/dealdone/cleanup",
+			"document-analysis": "/webhook/dealdone-document-analysis",
+			"error-handling":    "/webhook/dealdone-error-handling",
+			"user-corrections":  "/webhook/dealdone-user-corrections",
+			"cleanup":           "/webhook/dealdone-cleanup",
 		}
 	}
 
@@ -423,8 +424,10 @@ func (n8n *N8nIntegrationService) executeWorkflow(ctx context.Context, request *
 		return nil, fmt.Errorf("unknown workflow: %s", request.WorkflowName)
 	}
 
-	// Build URL
-	workflowURL := fmt.Sprintf("%s%s", n8n.config.BaseURL, endpoint)
+	// Build URL (handle trailing/leading slashes)
+	baseURL := strings.TrimSuffix(n8n.config.BaseURL, "/")
+	endpoint = strings.TrimPrefix(endpoint, "/")
+	workflowURL := fmt.Sprintf("%s/%s", baseURL, endpoint)
 
 	// Convert payload to JSON
 	jsonData, err := json.Marshal(request.Payload)
@@ -520,23 +523,44 @@ func (n8n *N8nIntegrationService) checkN8nHealth() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	healthURL := fmt.Sprintf("%s/healthz", n8n.config.BaseURL)
-	req, err := http.NewRequestWithContext(ctx, "GET", healthURL, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create health check request: %w", err)
+	// Try multiple endpoints to check health
+	endpoints := []string{
+		"/healthz",          // Standard health endpoint
+		"/api/v1/workflows", // API endpoint that should exist on cloud instances
+		"/",                 // Root endpoint as fallback
 	}
 
-	resp, err := n8n.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("health check request failed: %w", err)
-	}
-	defer resp.Body.Close()
+	var lastErr error
+	for _, endpoint := range endpoints {
+		healthURL := fmt.Sprintf("%s%s", n8n.config.BaseURL, endpoint)
+		req, err := http.NewRequestWithContext(ctx, "GET", healthURL, nil)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to create health check request: %w", err)
+			continue
+		}
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("n8n health check failed with status %d", resp.StatusCode)
+		// Add auth headers for API endpoints
+		if endpoint != "/" {
+			n8n.addAuthHeaders(req)
+		}
+
+		resp, err := n8n.client.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("health check request failed: %w", err)
+			continue
+		}
+		resp.Body.Close()
+
+		// Accept various success status codes
+		if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			// 200 = success, 401/403 = server is responding but needs auth (which is fine for health check)
+			return nil
+		}
+
+		lastErr = fmt.Errorf("n8n health check failed with status %d", resp.StatusCode)
 	}
 
-	return nil
+	return lastErr
 }
 
 // IsHealthy checks if the n8n integration service is healthy

@@ -276,7 +276,7 @@ export function DealDashboard() {
     }
   };
 
-  const processDealFolder = async (dealName: string) => {
+  const analyzeAll = async (dealName: string) => {
     try {
       // Get the full path to the deal folder
       const dealFolderPath = await GetDealFolderPath(dealName);
@@ -293,10 +293,33 @@ export function DealDashboard() {
       const results = await ProcessFolder(dealFolderPath, dealName);
       
       if (results && results.length > 0) {
-        toast({
-          title: "Folder Processed",
-          description: `Processed ${results.length} documents`,
-        });
+        // Count already processed vs newly processed files
+        const alreadyProcessed = results.filter((r: any) => r.alreadyProcessed).length;
+        const newlyProcessed = results.filter((r: any) => r.success && !r.alreadyProcessed).length;
+        const failed = results.filter((r: any) => !r.success).length;
+        
+        if (alreadyProcessed > 0 && newlyProcessed === 0) {
+          toast({
+            title: "Files Already Processed",
+            description: `All ${alreadyProcessed} documents in this deal have already been analyzed and routed to the correct folders.`,
+          });
+        } else if (newlyProcessed > 0 && alreadyProcessed === 0) {
+          toast({
+            title: "Folder Processed",
+            description: `Successfully processed ${newlyProcessed} new documents`,
+          });
+        } else if (newlyProcessed > 0 && alreadyProcessed > 0) {
+          toast({
+            title: "Folder Processed",
+            description: `Processed ${newlyProcessed} new documents. ${alreadyProcessed} documents were already processed.`,
+          });
+        } else if (failed > 0) {
+          toast({
+            title: "Processing Complete with Errors",
+            description: `${failed} documents failed to process. Check the logs for details.`,
+            variant: "destructive",
+          });
+        }
       } else {
         toast({
           title: "Analysis Complete",
@@ -432,7 +455,7 @@ export function DealDashboard() {
                   <div className="flex space-x-2">
                     <Button
                       variant="outline"
-                      onClick={() => processDealFolder(selectedDealData.name)}
+                      onClick={() => analyzeAll(selectedDealData.name)}
                     >
                       <BarChart3 className="h-4 w-4 mr-2" />
                       Analyze All

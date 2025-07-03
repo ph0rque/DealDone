@@ -25,12 +25,13 @@ func NewDocumentRouter(folderManager *FolderManager, documentProcessor *Document
 
 // RoutingResult represents the result of routing a document
 type RoutingResult struct {
-	SourcePath      string       `json:"sourcePath"`
-	DestinationPath string       `json:"destinationPath"`
-	DocumentType    DocumentType `json:"documentType"`
-	Success         bool         `json:"success"`
-	Error           string       `json:"error,omitempty"`
-	ProcessingTime  int64        `json:"processingTimeMs"`
+	SourcePath       string       `json:"sourcePath"`
+	DestinationPath  string       `json:"destinationPath"`
+	DocumentType     DocumentType `json:"documentType"`
+	Success          bool         `json:"success"`
+	Error            string       `json:"error,omitempty"`
+	ProcessingTime   int64        `json:"processingTimeMs"`
+	AlreadyProcessed bool         `json:"alreadyProcessed"`
 }
 
 // RouteDocument processes and routes a single document to the appropriate folder
@@ -78,8 +79,21 @@ func (dr *DocumentRouter) RouteDocument(filePath string, dealName string) (*Rout
 		return result, err
 	}
 
+	// Check if file already exists in destination
+	fileName := filepath.Base(filePath)
+	destPath := filepath.Join(destFolder, fileName)
+
+	if _, err := os.Stat(destPath); err == nil {
+		// File already exists in the correct location
+		result.DestinationPath = destPath
+		result.DocumentType = docInfo.Type
+		result.Success = true
+		result.ProcessingTime = time.Since(startTime).Milliseconds()
+		result.AlreadyProcessed = true
+		return result, nil
+	}
+
 	// Copy file to destination
-	destPath := filepath.Join(destFolder, filepath.Base(filePath))
 	if err := dr.copyFile(filePath, destPath); err != nil {
 		result.Error = fmt.Sprintf("failed to copy file: %v", err)
 		result.ProcessingTime = time.Since(startTime).Milliseconds()

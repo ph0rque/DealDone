@@ -111,73 +111,10 @@ VITE_N8N_WEBHOOK_URL=https://your-n8n.com/webhook
 
 # Go environment
 DEALDONE_DATA_DIR=$HOME/DealDone
+N8N_BASE_URL=https://your-n8n-instance.com
 N8N_API_KEY=your-api-key
 ANTHROPIC_API_KEY=your-claude-key
 ```
 
 ### Wails Configuration
-```json
-{
-  "name": "DealDone",
-  "outputfilename": "DealDone",
-  "frontend:install": "npm install",
-  "frontend:build": "npm run build",
-  "frontend:dev:watcher": "npm run dev",
-  "author": {
-    "name": "DealDone Team",
-    "email": "team@dealdone.com"
-  }
-}
 ```
-
-## Development Workflow
-
-### Local Development
-1. Run `wails dev` for live reload
-2. Frontend on `http://localhost:5173`
-3. Go backend auto-recompiles on changes
-4. Wails provides dev tools in app window
-
-### Testing Strategy
-- **Frontend**: Jest + React Testing Library
-- **Backend**: Go standard testing + testify
-- **Integration**: Wails provides testing utilities
-- **E2E**: Playwright for desktop app testing
-
-### CI/CD Pipeline
-```yaml
-# GitHub Actions example
-- Build for all platforms
-- Run unit tests
-- Run integration tests
-- Code signing for distribution
-- Auto-update system integration
-```
-
-## Performance Considerations
-
-### Frontend Optimization
-- Code splitting for lazy loading
-- Memoization for expensive computations
-- Virtual scrolling for large document lists
-- Web Workers for heavy processing
-
-### Backend Optimization
-- Goroutines for concurrent file processing
-- Channel-based job queuing
-- Connection pooling for API calls
-- Efficient file streaming
-
-## Security Considerations
-
-### Application Security
-- Code signing certificates for distribution
-- Sandboxed file operations
-- Input sanitization
-- XSS prevention in React
-
-### Data Security
-- Local encryption for sensitive data
-- Secure API key storage (OS keychain)
-- HTTPS for all external communication
-- No telemetry without consent 

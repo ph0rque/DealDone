@@ -4,7 +4,7 @@ import { FileManagerLayout } from './components/FileManagerLayout'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { FirstRunSetup } from './components/FirstRunSetup'
 import { DealDashboard } from './components/DealDashboard'
-import { Settings } from './components/Settings'
+import Settings from './components/Settings'
 import { ProcessingProgress } from './components/ProcessingProgress'
 import { ThemeToggle } from './components/ThemeToggle'
 import { Toaster } from './components/ui/toaster'
@@ -12,6 +12,7 @@ import { IsFirstRun, CompleteFirstRunSetup, IsDealDoneReady } from '../wailsjs/g
 import './App.css'
 import { Button } from './components/ui/button'
 import { LayoutDashboard, FolderOpen, Settings as SettingsIcon } from 'lucide-react'
+
 
 type AppView = 'dashboard' | 'filemanager'
 
@@ -141,10 +142,22 @@ function App() {
           </main>
 
           {/* Settings Modal */}
-          <Settings 
-            isOpen={showSettings} 
-            onClose={() => setShowSettings(false)} 
-          />
+          {showSettings && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 z-40">
+              <div className="fixed top-0 right-0 h-full w-full max-w-2xl bg-white dark:bg-gray-900 z-50 shadow-lg">
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                  <Button 
+                    onClick={() => setShowSettings(false)} 
+                    variant="ghost" 
+                    className="float-right"
+                  >
+                    ×
+                  </Button>
+                </div>
+                <Settings />
+              </div>
+            </div>
+          )}
 
           {/* Processing Progress */}
           <ProcessingProgress 

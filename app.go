@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 // App struct
@@ -76,11 +78,16 @@ func priorityToString(priority ProcessingPriority) string {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
+	// Load environment variables from .env file
+	if err := godotenv.Load(); err != nil {
+		fmt.Printf("Warning: Could not load .env file: %v\n", err)
+	}
+
 	// Initialize config service with fallback
-	configService, err := NewConfigService()
-	if err != nil {
+	configService, configErr := NewConfigService()
+	if configErr != nil {
 		// Log error but continue with minimal config
-		fmt.Printf("Error initializing config: %v\n", err)
+		fmt.Printf("Error initializing config: %v\n", configErr)
 		// Create a minimal config service to allow the app to function
 		home, _ := os.UserHomeDir()
 		defaultRoot := filepath.Join(home, "Desktop", "DealDone")
@@ -107,11 +114,35 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize template discovery
 	a.templateDiscovery = NewTemplateDiscovery(a.templateManager)
 
-	// Initialize AI configuration manager
-	aiConfigManager, err := NewAIConfigManager(configService)
-	if err != nil {
-		fmt.Printf("Error initializing AI config: %v\n", err)
-		// Create with default config
+	// Initialize AI configuration manager with timeout to prevent hanging
+	var aiConfigManager *AIConfigManager
+	done := make(chan bool, 1)
+	var aiConfigErr error
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				done <- true
+			}
+		}()
+		aiConfigManager, aiConfigErr = NewAIConfigManager(configService)
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		if aiConfigErr != nil {
+			fmt.Printf("Error initializing AI config: %v\n", aiConfigErr)
+			// Create with default config
+			aiConfigManager = &AIConfigManager{
+				config: &AIConfig{
+					CacheTTL:  time.Minute * 30,
+					RateLimit: 60,
+				},
+			}
+		}
+	case <-time.After(5 * time.Second):
+		// Create with default config if initialization takes too long
 		aiConfigManager = &AIConfigManager{
 			config: &AIConfig{
 				CacheTTL:  time.Minute * 30,
@@ -145,9 +176,16 @@ func (a *App) startup(ctx context.Context) {
 	a.trendAnalyzer = NewTrendAnalyzer(aiService, a.dataMapper)
 	a.anomalyDetector = NewAnomalyDetector(aiService, a.dataMapper)
 
+	// Determine n8n Base URL from environment variable or use default
+	n8nBaseURL := os.Getenv("N8N_BASE_URL")
+	if n8nBaseURL == "" {
+		n8nBaseURL = "http://localhost:5678" // Default for local dev
+	}
+	n8nAPIKey := os.Getenv("N8N_API_KEY")
+
 	// Initialize webhook service with default configuration
 	webhookConfig := &WebhookConfig{
-		N8NBaseURL: "http://localhost:5678",
+		N8NBaseURL: n8nBaseURL,
 		AuthConfig: WebhookAuthConfig{
 			APIKey:          "",
 			SharedSecret:    "",
@@ -176,8 +214,8 @@ func (a *App) startup(ctx context.Context) {
 
 	// Initialize n8n integration service
 	n8nConfig := &N8nConfig{
-		BaseURL:               "http://localhost:5678",
-		APIKey:                "",
+		BaseURL:               n8nBaseURL,
+		APIKey:                n8nAPIKey,
 		DefaultTimeout:        30 * time.Second,
 		MaxRetries:            3,
 		RetryDelay:            2 * time.Second,
@@ -192,9 +230,19 @@ func (a *App) startup(ctx context.Context) {
 	n8nIntegration, err := NewN8nIntegrationService(n8nConfig, a.jobTracker, webhookService)
 	if err != nil {
 		fmt.Printf("Warning: Failed to initialize n8n integration: %v\n", err)
-		// Create a minimal service to allow the app to function
+		// Create a minimal but functional service to allow the app to function
+		client := &http.Client{
+			Timeout: n8nConfig.DefaultTimeout,
+		}
 		n8nIntegration = &N8nIntegrationService{
-			config: n8nConfig,
+			config:         n8nConfig,
+			client:         client,
+			jobTracker:     a.jobTracker,
+			webhookService: webhookService,
+			requestQueue:   make(chan *N8nWorkflowRequest, 1000),
+			activeRequests: make(map[string]*N8nWorkflowRequest),
+			stopChan:       make(chan struct{}),
+			isRunning:      false,
 		}
 	}
 	a.n8nIntegration = n8nIntegration
@@ -3692,4 +3740,137 @@ type CorrectionStatistics struct {
 	CorrectionsByUser     map[string]int     `json:"corrections_by_user"`
 	LearningEffectiveness float64            `json:"learning_effectiveness"`
 	PerformanceMetrics    PerformanceMetrics `json:"performance_metrics"`
+}
+
+// UploadDocument saves a file to the deal folder and triggers processing
+func (a *App) UploadDocument(dealName string, fileName string, fileData []byte) (*RoutingResult, error) {
+	if a.folderManager == nil {
+		return nil, fmt.Errorf("folder manager not initialized")
+	}
+
+	// Ensure deal folder exists
+	if !a.folderManager.DealExists(dealName) {
+		_, err := a.folderManager.CreateDealFolder(dealName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create deal folder: %w", err)
+		}
+	}
+
+	// Create temporary file path for processing
+	dealPath := a.folderManager.GetDealPath(dealName)
+	tempFilePath := filepath.Join(dealPath, fileName)
+
+	// Save file to filesystem
+	if err := os.WriteFile(tempFilePath, fileData, 0644); err != nil {
+		return nil, fmt.Errorf("failed to save file: %w", err)
+	}
+
+	// Process and route the document
+	result, err := a.ProcessDocument(tempFilePath, dealName)
+	if err != nil {
+		// Clean up temp file if processing failed
+		os.Remove(tempFilePath)
+		return nil, fmt.Errorf("failed to process document: %w", err)
+	}
+
+	// If routing was successful, remove the temp file (it was copied to the correct subfolder)
+	if result.Success && !result.AlreadyProcessed {
+		os.Remove(tempFilePath)
+	} else if result.AlreadyProcessed {
+		// File was already in the correct location, remove temp file
+		os.Remove(tempFilePath)
+	}
+
+	// Trigger n8n workflow for newly processed documents only
+	if result.Success && !result.AlreadyProcessed && a.n8nIntegration != nil {
+		go func() {
+			// Generate job ID
+			jobID := fmt.Sprintf("upload_%d_%s", time.Now().UnixMilli(), dealName)
+
+			// Create job entry in tracker
+			if a.jobTracker != nil {
+				a.jobTracker.CreateJob(jobID, dealName, TriggerUserButton, []string{result.DestinationPath})
+			}
+
+			// Create payload for n8n
+			payload := &DocumentWebhookPayload{
+				DealName:    dealName,
+				FilePaths:   []string{result.DestinationPath},
+				TriggerType: TriggerUserButton,
+				JobID:       jobID,
+				Timestamp:   time.Now().UnixMilli(),
+			}
+
+			// Send to n8n for processing
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			_, err := a.n8nIntegration.SendDocumentAnalysisRequest(ctx, payload)
+			if err != nil {
+				fmt.Printf("Warning: Failed to submit document to n8n: %v\n", err)
+				if a.jobTracker != nil {
+					a.jobTracker.FailJob(jobID, fmt.Sprintf("Failed to send to n8n: %v", err))
+				}
+			}
+		}()
+	}
+
+	return result, nil
+}
+
+// UploadDocuments handles batch file uploads
+func (a *App) UploadDocuments(dealName string, files map[string][]byte) ([]*RoutingResult, error) {
+	results := make([]*RoutingResult, 0, len(files))
+	successfulFiles := make([]string, 0, len(files))
+
+	for fileName, fileData := range files {
+		result, err := a.UploadDocument(dealName, fileName, fileData)
+		if err != nil {
+			// Create error result
+			result = &RoutingResult{
+				SourcePath: fileName,
+				Success:    false,
+				Error:      err.Error(),
+			}
+		} else if result.Success {
+			successfulFiles = append(successfulFiles, result.DestinationPath)
+		}
+		results = append(results, result)
+	}
+
+	// If we have successful uploads and n8n is available, submit batch job
+	if len(successfulFiles) > 0 && a.n8nIntegration != nil {
+		go func() {
+			// Generate job ID
+			jobID := fmt.Sprintf("batch_upload_%d_%s", time.Now().UnixMilli(), dealName)
+
+			// Create job entry in tracker
+			if a.jobTracker != nil {
+				a.jobTracker.CreateJob(jobID, dealName, TriggerUserButton, successfulFiles)
+			}
+
+			// Create payload for n8n
+			payload := &DocumentWebhookPayload{
+				DealName:    dealName,
+				FilePaths:   successfulFiles,
+				TriggerType: TriggerUserButton,
+				JobID:       jobID,
+				Timestamp:   time.Now().UnixMilli(),
+			}
+
+			// Send to n8n for processing
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			_, err := a.n8nIntegration.SendDocumentAnalysisRequest(ctx, payload)
+			if err != nil {
+				fmt.Printf("Warning: Failed to submit batch job to n8n: %v\n", err)
+				if a.jobTracker != nil {
+					a.jobTracker.FailJob(jobID, fmt.Sprintf("Failed to send batch to n8n: %v", err))
+				}
+			}
+		}()
+	}
+
+	return results, nil
 }
