@@ -108,22 +108,37 @@ func (dp *DocumentProcessor) ProcessDocument(filePath string) (*DocumentInfo, er
 		docInfo.IsScanned = true
 	}
 
-	// Use AI to detect document type
+	// First try rule-based classification for obvious cases
+	ruleBasedType := dp.detectDocumentTypeByRules(fileName, ext)
+	fmt.Printf("Document classification for %s: rule-based=%s\n", fileName, ruleBasedType)
+
+	// If we have a strong rule-based match (not general), use it
+	if ruleBasedType != DocTypeGeneral {
+		docInfo.Type = ruleBasedType
+		docInfo.Confidence = 0.9 // High confidence for rule-based matches
+		fmt.Printf("Using rule-based classification for %s: %s\n", fileName, ruleBasedType)
+		return docInfo, nil
+	}
+
+	// Otherwise, try AI classification for general documents
 	if dp.aiService != nil {
 		aiResult, err := dp.detectDocumentTypeWithAI(filePath, docInfo)
 		if err == nil {
 			docInfo.Type = aiResult.Type
 			docInfo.Confidence = aiResult.Confidence
 			docInfo.Keywords = aiResult.Keywords
+			fmt.Printf("Using AI classification for %s: %s (confidence: %.2f)\n", fileName, aiResult.Type, aiResult.Confidence)
 		} else {
 			// Fall back to rule-based detection
-			docInfo.Type = dp.detectDocumentTypeByRules(fileName, ext)
+			docInfo.Type = ruleBasedType
 			docInfo.Confidence = 0.7 // Lower confidence for rule-based
+			fmt.Printf("AI classification failed for %s, using rule-based: %s\n", fileName, ruleBasedType)
 		}
 	} else {
 		// No AI service, use rules
-		docInfo.Type = dp.detectDocumentTypeByRules(fileName, ext)
+		docInfo.Type = ruleBasedType
 		docInfo.Confidence = 0.7
+		fmt.Printf("No AI service, using rule-based for %s: %s\n", fileName, ruleBasedType)
 	}
 
 	return docInfo, nil
