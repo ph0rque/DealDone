@@ -337,6 +337,12 @@ func (wh *WebhookHandlers) RegisterHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("/webhook/n8n/enhanced/format-field-value", wh.HandleEnhancedFormatFieldValue)
 	mux.HandleFunc("/webhook/n8n/enhanced/validate-template-data", wh.HandleEnhancedValidateTemplateData)
 	mux.HandleFunc("/webhook/n8n/enhanced/analyze-document", wh.HandleEnhancedAnalyzeDocument)
+
+	// ENHANCED ENTITY EXTRACTION WEBHOOK ENDPOINTS FOR TASK 1.3
+	mux.HandleFunc("/webhook/entity-extraction/company-and-deal-names", wh.handleExtractCompanyAndDealNames)
+	mux.HandleFunc("/webhook/entity-extraction/financial-metrics", wh.handleExtractFinancialMetrics)
+	mux.HandleFunc("/webhook/entity-extraction/personnel-and-roles", wh.handleExtractPersonnelAndRoles)
+	mux.HandleFunc("/webhook/entity-extraction/validate-entities-across-documents", wh.handleValidateEntitiesAcrossDocuments)
 }
 
 // CreateHTTPServer creates an HTTP server with webhook handlers
@@ -719,4 +725,145 @@ func (wh *WebhookHandlers) HandleEnhancedAnalyzeDocument(w http.ResponseWriter, 
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+// ENHANCED ENTITY EXTRACTION WEBHOOK ENDPOINTS FOR TASK 1.3
+
+// handleExtractCompanyAndDealNames handles company and deal name extraction requests
+func (wh *WebhookHandlers) handleExtractCompanyAndDealNames(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	var request struct {
+		Content      string `json:"content"`
+		DocumentType string `json:"documentType"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	if request.Content == "" {
+		http.Error(w, "Content is required", http.StatusBadRequest)
+		return
+	}
+
+	// Use AI service to extract company and deal names
+	result, err := wh.app.aiService.ExtractCompanyAndDealNames(ctx, request.Content, request.DocumentType)
+	if err != nil {
+		log.Printf("Error extracting company and deal names: %v", err)
+		http.Error(w, "Failed to extract company and deal names", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data":    result,
+	})
+}
+
+// handleExtractFinancialMetrics handles financial metrics extraction requests
+func (wh *WebhookHandlers) handleExtractFinancialMetrics(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	var request struct {
+		Content      string `json:"content"`
+		DocumentType string `json:"documentType"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	if request.Content == "" {
+		http.Error(w, "Content is required", http.StatusBadRequest)
+		return
+	}
+
+	// Use AI service to extract financial metrics
+	result, err := wh.app.aiService.ExtractFinancialMetrics(ctx, request.Content, request.DocumentType)
+	if err != nil {
+		log.Printf("Error extracting financial metrics: %v", err)
+		http.Error(w, "Failed to extract financial metrics", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data":    result,
+	})
+}
+
+// handleExtractPersonnelAndRoles handles personnel and roles extraction requests
+func (wh *WebhookHandlers) handleExtractPersonnelAndRoles(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	var request struct {
+		Content      string `json:"content"`
+		DocumentType string `json:"documentType"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	if request.Content == "" {
+		http.Error(w, "Content is required", http.StatusBadRequest)
+		return
+	}
+
+	// Use AI service to extract personnel and roles
+	result, err := wh.app.aiService.ExtractPersonnelAndRoles(ctx, request.Content, request.DocumentType)
+	if err != nil {
+		log.Printf("Error extracting personnel and roles: %v", err)
+		http.Error(w, "Failed to extract personnel and roles", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data":    result,
+	})
+}
+
+// handleValidateEntitiesAcrossDocuments handles cross-document entity validation requests
+func (wh *WebhookHandlers) handleValidateEntitiesAcrossDocuments(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	var request struct {
+		DocumentExtractions []DocumentEntityExtraction `json:"documentExtractions"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	if len(request.DocumentExtractions) == 0 {
+		http.Error(w, "Document extractions are required", http.StatusBadRequest)
+		return
+	}
+
+	// Use AI service to validate entities across documents
+	result, err := wh.app.aiService.ValidateEntitiesAcrossDocuments(ctx, request.DocumentExtractions)
+	if err != nil {
+		log.Printf("Error validating entities across documents: %v", err)
+		http.Error(w, "Failed to validate entities across documents", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data":    result,
+	})
 }

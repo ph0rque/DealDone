@@ -630,3 +630,393 @@ Validation types:
 	atomic.AddInt64(&op.stats.SuccessfulCalls, 1)
 	return &result, nil
 }
+
+// ENHANCED ENTITY EXTRACTION METHODS FOR TASK 1.3
+
+// ExtractCompanyAndDealNames extracts company names and deal names with enhanced confidence scoring
+func (op *OpenAIProvider) ExtractCompanyAndDealNames(ctx context.Context, content string, documentType string) (*CompanyDealExtraction, error) {
+	atomic.AddInt64(&op.stats.TotalRequests, 1)
+
+	// Truncate content if too long
+	if len(content) > 15000 {
+		content = content[:15000] + "..."
+	}
+
+	systemPrompt := `You are an expert M&A document analyst specializing in company and deal identification.
+Extract company names and deal names from the provided document with enhanced confidence scoring and validation.
+
+Focus on:
+- Company names with their roles (buyer, seller, target, advisor)
+- Deal names and types (acquisition, merger, investment)
+- Industry classification and location when available
+- Confidence scoring based on context clarity
+
+Provide your response in JSON format with the following structure:
+{
+  "companies": [
+    {
+      "name": "AquaFlow Technologies Inc.",
+      "role": "target",
+      "confidence": 0.95,
+      "context": "target company being acquired",
+      "industry": "water treatment technology",
+      "location": "California, USA",
+      "metadata": {"source_section": "executive_summary"},
+      "validated": false
+    }
+  ],
+  "dealNames": [
+    {
+      "name": "Project Neptune",
+      "type": "acquisition",
+      "status": "pending",
+      "confidence": 0.90,
+      "context": "code name for the acquisition",
+      "metadata": {"source_section": "deal_overview"}
+    }
+  ],
+  "confidence": 0.92,
+  "metadata": {
+    "extraction_method": "ai_analysis",
+    "document_sections_analyzed": ["executive_summary", "deal_overview"]
+  },
+  "warnings": ["Any extraction warnings or ambiguities"]
+}`
+
+	userPrompt := fmt.Sprintf("Extract company and deal names from this %s document:\n\n%s", documentType, content)
+
+	messages := []openAIMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userPrompt},
+	}
+
+	response, err := op.makeRequest(ctx, messages, true)
+	if err != nil {
+		atomic.AddInt64(&op.stats.FailedCalls, 1)
+		return nil, err
+	}
+
+	var result CompanyDealExtraction
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		atomic.AddInt64(&op.stats.FailedCalls, 1)
+		return nil, fmt.Errorf("failed to parse company and deal extraction: %w", err)
+	}
+
+	atomic.AddInt64(&op.stats.SuccessfulCalls, 1)
+	return &result, nil
+}
+
+// ExtractFinancialMetrics extracts financial metrics with enhanced validation
+func (op *OpenAIProvider) ExtractFinancialMetrics(ctx context.Context, content string, documentType string) (*FinancialMetricsExtraction, error) {
+	atomic.AddInt64(&op.stats.TotalRequests, 1)
+
+	// Truncate content if too long
+	if len(content) > 15000 {
+		content = content[:15000] + "..."
+	}
+
+	systemPrompt := `You are a financial analyst expert specializing in M&A document analysis.
+Extract comprehensive financial metrics with enhanced validation and confidence scoring.
+
+Focus on:
+- Revenue, EBITDA, Net Income, Assets, Liabilities, Cash Flow
+- Deal value and financial multiples
+- Currency identification and period specification
+- Validation of financial consistency
+- Confidence scoring based on data clarity
+
+Provide your response in JSON format with the following structure:
+{
+  "revenue": {
+    "value": 25000000,
+    "confidence": 0.95,
+    "source": "income_statement",
+    "context": "annual revenue for 2023",
+    "unit": "dollars",
+    "validated": true
+  },
+  "ebitda": {
+    "value": 8500000,
+    "confidence": 0.90,
+    "source": "financial_summary",
+    "context": "adjusted EBITDA 2023",
+    "unit": "dollars",
+    "validated": true
+  },
+  "dealValue": {
+    "value": 125000000,
+    "confidence": 0.85,
+    "source": "deal_terms",
+    "context": "total enterprise value",
+    "unit": "dollars",
+    "validated": false
+  },
+  "multiples": {
+    "ev_revenue": {
+      "value": 5.0,
+      "confidence": 0.80,
+      "source": "calculated",
+      "context": "EV/Revenue multiple",
+      "unit": "ratio",
+      "validated": true
+    }
+  },
+  "ratios": {
+    "ebitda_margin": {
+      "value": 0.34,
+      "confidence": 0.90,
+      "source": "calculated", 
+      "context": "EBITDA margin percentage",
+      "unit": "percentage",
+      "validated": true
+    }
+  },
+  "currency": "USD",
+  "period": "FY 2023",
+  "confidence": 0.88,
+  "validated": true,
+  "warnings": ["Any validation warnings"],
+  "metadata": {
+    "extraction_method": "ai_analysis",
+    "validation_checks": ["consistency", "reasonableness"]
+  }
+}`
+
+	userPrompt := fmt.Sprintf("Extract financial metrics from this %s document:\n\n%s", documentType, content)
+
+	messages := []openAIMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userPrompt},
+	}
+
+	response, err := op.makeRequest(ctx, messages, true)
+	if err != nil {
+		atomic.AddInt64(&op.stats.FailedCalls, 1)
+		return nil, err
+	}
+
+	var result FinancialMetricsExtraction
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		atomic.AddInt64(&op.stats.FailedCalls, 1)
+		return nil, fmt.Errorf("failed to parse financial metrics: %w", err)
+	}
+
+	atomic.AddInt64(&op.stats.SuccessfulCalls, 1)
+	return &result, nil
+}
+
+// ExtractPersonnelAndRoles extracts personnel information and roles
+func (op *OpenAIProvider) ExtractPersonnelAndRoles(ctx context.Context, content string, documentType string) (*PersonnelRoleExtraction, error) {
+	atomic.AddInt64(&op.stats.TotalRequests, 1)
+
+	// Truncate content if too long
+	if len(content) > 15000 {
+		content = content[:15000] + "..."
+	}
+
+	systemPrompt := `You are an expert in organizational analysis for M&A due diligence.
+Extract personnel information, roles, and organizational hierarchy with enhanced detail.
+
+Focus on:
+- Key personnel with titles and companies
+- Contact information when available
+- Organizational hierarchy and reporting relationships
+- Role classification (decision_maker, advisor, contact)
+- Department and functional area identification
+
+Provide your response in JSON format with the following structure:
+{
+  "personnel": [
+    {
+      "name": "John Smith",
+      "title": "Chief Executive Officer",
+      "company": "AquaFlow Technologies",
+      "role": "decision_maker",
+      "department": "executive",
+      "confidence": 0.95,
+      "context": "CEO of target company",
+      "contact": {
+        "email": "john.smith@aquaflow.com",
+        "phone": "+1-555-0123",
+        "address": "123 Business Ave, San Francisco, CA"
+      },
+      "metadata": {"source_section": "management_team"}
+    }
+  ],
+  "contacts": [
+    {
+      "email": "deals@investmentbank.com",
+      "phone": "+1-555-0456",
+      "address": "456 Wall Street, New York, NY",
+      "company": "Investment Bank LLC",
+      "confidence": 0.90,
+      "context": "deal advisor contact",
+      "metadata": {"source_section": "advisor_contacts"}
+    }
+  ],
+  "hierarchy": [
+    {
+      "superior": "John Smith",
+      "subordinate": "Jane Doe",
+      "confidence": 0.85,
+      "context": "CEO to CFO reporting relationship"
+    }
+  ],
+  "confidence": 0.87,
+  "metadata": {
+    "extraction_method": "ai_analysis",
+    "sections_analyzed": ["management_team", "advisor_contacts"]
+  },
+  "warnings": ["Any extraction warnings"]
+}`
+
+	userPrompt := fmt.Sprintf("Extract personnel and role information from this %s document:\n\n%s", documentType, content)
+
+	messages := []openAIMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userPrompt},
+	}
+
+	response, err := op.makeRequest(ctx, messages, true)
+	if err != nil {
+		atomic.AddInt64(&op.stats.FailedCalls, 1)
+		return nil, err
+	}
+
+	var result PersonnelRoleExtraction
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		atomic.AddInt64(&op.stats.FailedCalls, 1)
+		return nil, fmt.Errorf("failed to parse personnel and roles: %w", err)
+	}
+
+	atomic.AddInt64(&op.stats.SuccessfulCalls, 1)
+	return &result, nil
+}
+
+// ValidateEntitiesAcrossDocuments validates and resolves conflicts between entities from multiple documents
+func (op *OpenAIProvider) ValidateEntitiesAcrossDocuments(ctx context.Context, documentExtractions []DocumentEntityExtraction) (*CrossDocumentValidation, error) {
+	atomic.AddInt64(&op.stats.TotalRequests, 1)
+
+	// Create a summary of extractions for the AI to analyze
+	extractionSummary := make(map[string]interface{})
+	for i, extraction := range documentExtractions {
+		extractionSummary[fmt.Sprintf("document_%d", i)] = map[string]interface{}{
+			"documentId":   extraction.DocumentID,
+			"documentType": extraction.DocumentType,
+			"companies":    extraction.Companies,
+			"financial":    extraction.Financial,
+			"personnel":    extraction.Personnel,
+			"confidence":   extraction.Confidence,
+		}
+	}
+
+	systemPrompt := `You are an expert M&A analyst specializing in cross-document validation and conflict resolution.
+Analyze entity extractions from multiple documents and identify conflicts, validate consistency, and provide resolutions.
+
+Focus on:
+- Identifying conflicting information between documents
+- Consolidating consistent entities across documents
+- Providing confidence-based conflict resolution
+- Generating validation summaries and recommendations
+
+Provide your response in JSON format with the following structure:
+{
+  "consolidatedEntities": {
+    "companies": [
+      {
+        "name": "AquaFlow Technologies Inc.",
+        "role": "target",
+        "confidence": 0.95,
+        "context": "consolidated from multiple documents",
+        "industry": "water treatment",
+        "location": "California, USA",
+        "metadata": {"consolidation_sources": ["doc1", "doc2"]},
+        "validated": true
+      }
+    ],
+    "financial": {
+      "revenue": {
+        "value": 25000000,
+        "confidence": 0.92,
+        "source": "consolidated",
+        "context": "validated across financial documents",
+        "unit": "dollars",
+        "validated": true
+      }
+    },
+    "personnel": [],
+    "deals": []
+  },
+  "conflicts": [
+    {
+      "type": "financial",
+      "field": "revenue",
+      "values": [
+        {
+          "value": 25000000,
+          "source": "financial_statement",
+          "confidence": 0.95,
+          "documentId": "doc1"
+        },
+        {
+          "value": 24500000,
+          "source": "management_presentation",
+          "confidence": 0.85,
+          "documentId": "doc2"
+        }
+      ],
+      "severity": "low",
+      "description": "Minor revenue discrepancy between financial statement and presentation",
+      "metadata": {"variance_percentage": 2.0}
+    }
+  ],
+  "resolutions": [
+    {
+      "conflictId": "conflict_1",
+      "resolution": "precedence",
+      "chosenValue": 25000000,
+      "reasoning": "Financial statement has higher confidence and is more authoritative",
+      "confidence": 0.90,
+      "metadata": {"resolution_method": "source_precedence"}
+    }
+  ],
+  "confidence": 0.88,
+  "summary": {
+    "totalEntities": 15,
+    "validatedEntities": 13,
+    "conflictsFound": 2,
+    "conflictsResolved": 2,
+    "overallConfidence": 0.88
+  },
+  "metadata": {
+    "validation_method": "ai_analysis",
+    "documents_analyzed": 3
+  }
+}`
+
+	userPrompt := fmt.Sprintf("Validate and resolve conflicts in these entity extractions:\n\n%s",
+		func() string {
+			summaryBytes, _ := json.MarshalIndent(extractionSummary, "", "  ")
+			return string(summaryBytes)
+		}())
+
+	messages := []openAIMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userPrompt},
+	}
+
+	response, err := op.makeRequest(ctx, messages, true)
+	if err != nil {
+		atomic.AddInt64(&op.stats.FailedCalls, 1)
+		return nil, err
+	}
+
+	var result CrossDocumentValidation
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		atomic.AddInt64(&op.stats.FailedCalls, 1)
+		return nil, fmt.Errorf("failed to parse cross-document validation: %w", err)
+	}
+
+	atomic.AddInt64(&op.stats.SuccessfulCalls, 1)
+	return &result, nil
+}

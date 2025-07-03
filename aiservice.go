@@ -609,3 +609,345 @@ func (s *AIService) GetConfiguration() map[string]interface{} {
 
 	return config
 }
+
+// NEW ENHANCED ENTITY EXTRACTION METHODS FOR TASK 1.3
+
+// ExtractCompanyAndDealNames extracts company names and deal names with enhanced confidence scoring
+func (as *AIService) ExtractCompanyAndDealNames(ctx context.Context, content string, documentType string) (*CompanyDealExtraction, error) {
+	// Check cache
+	cacheKey := as.cache.GenerateKey("company_deal_extract", content, map[string]interface{}{
+		"documentType": documentType,
+	})
+	if cached := as.cache.Get(cacheKey); cached != nil {
+		if result, ok := cached.(*CompanyDealExtraction); ok {
+			return result, nil
+		}
+	}
+
+	// Rate limiting
+	if err := as.rateLimiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limit exceeded: %w", err)
+	}
+
+	// Try providers with fallback
+	var lastError error
+	for _, provider := range as.fallbackOrder {
+		if p, exists := as.providers[provider]; exists && p.IsAvailable() {
+			if enhancedProvider, ok := p.(EnhancedEntityExtractorInterface); ok {
+				result, err := enhancedProvider.ExtractCompanyAndDealNames(ctx, content, documentType)
+				if err == nil {
+					as.cache.Set(cacheKey, result)
+					return result, nil
+				}
+				lastError = err
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("company and deal name extraction failed: %w", lastError)
+}
+
+// ExtractFinancialMetrics extracts financial metrics with enhanced validation
+func (as *AIService) ExtractFinancialMetrics(ctx context.Context, content string, documentType string) (*FinancialMetricsExtraction, error) {
+	// Check cache
+	cacheKey := as.cache.GenerateKey("financial_metrics", content, map[string]interface{}{
+		"documentType": documentType,
+	})
+	if cached := as.cache.Get(cacheKey); cached != nil {
+		if result, ok := cached.(*FinancialMetricsExtraction); ok {
+			return result, nil
+		}
+	}
+
+	// Rate limiting
+	if err := as.rateLimiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limit exceeded: %w", err)
+	}
+
+	// Try providers with fallback
+	var lastError error
+	for _, provider := range as.fallbackOrder {
+		if p, exists := as.providers[provider]; exists && p.IsAvailable() {
+			if enhancedProvider, ok := p.(EnhancedEntityExtractorInterface); ok {
+				result, err := enhancedProvider.ExtractFinancialMetrics(ctx, content, documentType)
+				if err == nil {
+					as.cache.Set(cacheKey, result)
+					return result, nil
+				}
+				lastError = err
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("financial metrics extraction failed: %w", lastError)
+}
+
+// ExtractPersonnelAndRoles extracts personnel information and roles
+func (as *AIService) ExtractPersonnelAndRoles(ctx context.Context, content string, documentType string) (*PersonnelRoleExtraction, error) {
+	// Check cache
+	cacheKey := as.cache.GenerateKey("personnel_roles", content, map[string]interface{}{
+		"documentType": documentType,
+	})
+	if cached := as.cache.Get(cacheKey); cached != nil {
+		if result, ok := cached.(*PersonnelRoleExtraction); ok {
+			return result, nil
+		}
+	}
+
+	// Rate limiting
+	if err := as.rateLimiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limit exceeded: %w", err)
+	}
+
+	// Try providers with fallback
+	var lastError error
+	for _, provider := range as.fallbackOrder {
+		if p, exists := as.providers[provider]; exists && p.IsAvailable() {
+			if enhancedProvider, ok := p.(EnhancedEntityExtractorInterface); ok {
+				result, err := enhancedProvider.ExtractPersonnelAndRoles(ctx, content, documentType)
+				if err == nil {
+					as.cache.Set(cacheKey, result)
+					return result, nil
+				}
+				lastError = err
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("personnel and roles extraction failed: %w", lastError)
+}
+
+// ValidateEntitiesAcrossDocuments validates and resolves conflicts between entities from multiple documents
+func (as *AIService) ValidateEntitiesAcrossDocuments(ctx context.Context, documentExtractions []DocumentEntityExtraction) (*CrossDocumentValidation, error) {
+	// Check cache
+	cacheKey := as.cache.GenerateKey("cross_doc_validation", "", map[string]interface{}{
+		"documentCount": len(documentExtractions),
+		"extractionIds": extractDocumentIds(documentExtractions),
+	})
+	if cached := as.cache.Get(cacheKey); cached != nil {
+		if result, ok := cached.(*CrossDocumentValidation); ok {
+			return result, nil
+		}
+	}
+
+	// Rate limiting
+	if err := as.rateLimiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limit exceeded: %w", err)
+	}
+
+	// Try providers with fallback
+	var lastError error
+	for _, provider := range as.fallbackOrder {
+		if p, exists := as.providers[provider]; exists && p.IsAvailable() {
+			if enhancedProvider, ok := p.(EnhancedEntityExtractorInterface); ok {
+				result, err := enhancedProvider.ValidateEntitiesAcrossDocuments(ctx, documentExtractions)
+				if err == nil {
+					as.cache.Set(cacheKey, result)
+					return result, nil
+				}
+				lastError = err
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("cross-document entity validation failed: %w", lastError)
+}
+
+// Helper function to extract document IDs for cache key generation
+func extractDocumentIds(extractions []DocumentEntityExtraction) []string {
+	ids := make([]string, len(extractions))
+	for i, extraction := range extractions {
+		ids[i] = extraction.DocumentID
+	}
+	return ids
+}
+
+// NEW ENHANCED ENTITY EXTRACTION INTERFACE
+type EnhancedEntityExtractorInterface interface {
+	// ExtractCompanyAndDealNames extracts company names and deal names with enhanced confidence scoring
+	ExtractCompanyAndDealNames(ctx context.Context, content string, documentType string) (*CompanyDealExtraction, error)
+
+	// ExtractFinancialMetrics extracts financial metrics with enhanced validation
+	ExtractFinancialMetrics(ctx context.Context, content string, documentType string) (*FinancialMetricsExtraction, error)
+
+	// ExtractPersonnelAndRoles extracts personnel information and roles
+	ExtractPersonnelAndRoles(ctx context.Context, content string, documentType string) (*PersonnelRoleExtraction, error)
+
+	// ValidateEntitiesAcrossDocuments validates and resolves conflicts between entities from multiple documents
+	ValidateEntitiesAcrossDocuments(ctx context.Context, documentExtractions []DocumentEntityExtraction) (*CrossDocumentValidation, error)
+}
+
+// CompanyDealExtraction represents extracted company and deal information
+type CompanyDealExtraction struct {
+	Companies  []CompanyEntity        `json:"companies"`
+	DealNames  []DealEntity           `json:"dealNames"`
+	Confidence float64                `json:"confidence"`
+	Metadata   map[string]interface{} `json:"metadata"`
+	Warnings   []string               `json:"warnings"`
+}
+
+// CompanyEntity represents a company with enhanced metadata
+type CompanyEntity struct {
+	Name       string                 `json:"name"`
+	Role       string                 `json:"role"` // buyer, seller, target, advisor
+	Confidence float64                `json:"confidence"`
+	Context    string                 `json:"context"`
+	Industry   string                 `json:"industry"`
+	Location   string                 `json:"location"`
+	Metadata   map[string]interface{} `json:"metadata"`
+	Validated  bool                   `json:"validated"` // validated against known databases
+}
+
+// DealEntity represents deal information
+type DealEntity struct {
+	Name       string                 `json:"name"`
+	Type       string                 `json:"type"`   // acquisition, merger, investment
+	Status     string                 `json:"status"` // proposed, pending, completed
+	Confidence float64                `json:"confidence"`
+	Context    string                 `json:"context"`
+	Metadata   map[string]interface{} `json:"metadata"`
+}
+
+// FinancialMetricsExtraction represents extracted financial metrics with validation
+type FinancialMetricsExtraction struct {
+	Revenue          FinancialMetric            `json:"revenue"`
+	EBITDA           FinancialMetric            `json:"ebitda"`
+	NetIncome        FinancialMetric            `json:"netIncome"`
+	TotalAssets      FinancialMetric            `json:"totalAssets"`
+	TotalLiabilities FinancialMetric            `json:"totalLiabilities"`
+	CashFlow         FinancialMetric            `json:"cashFlow"`
+	DealValue        FinancialMetric            `json:"dealValue"`
+	Multiples        map[string]FinancialMetric `json:"multiples"`
+	Ratios           map[string]FinancialMetric `json:"ratios"`
+	Currency         string                     `json:"currency"`
+	Period           string                     `json:"period"`
+	Confidence       float64                    `json:"confidence"`
+	Validated        bool                       `json:"validated"`
+	Warnings         []string                   `json:"warnings"`
+	Metadata         map[string]interface{}     `json:"metadata"`
+}
+
+// FinancialMetric represents a financial value with metadata
+type FinancialMetric struct {
+	Value      float64 `json:"value"`
+	Confidence float64 `json:"confidence"`
+	Source     string  `json:"source"`
+	Context    string  `json:"context"`
+	Unit       string  `json:"unit"` // millions, thousands, etc.
+	Validated  bool    `json:"validated"`
+}
+
+// PersonnelRoleExtraction represents extracted personnel and role information
+type PersonnelRoleExtraction struct {
+	Personnel  []PersonEntity         `json:"personnel"`
+	Contacts   []ContactEntity        `json:"contacts"`
+	Hierarchy  []HierarchyRelation    `json:"hierarchy"`
+	Confidence float64                `json:"confidence"`
+	Metadata   map[string]interface{} `json:"metadata"`
+	Warnings   []string               `json:"warnings"`
+}
+
+// PersonEntity represents a person with role information
+type PersonEntity struct {
+	Name       string                 `json:"name"`
+	Title      string                 `json:"title"`
+	Company    string                 `json:"company"`
+	Role       string                 `json:"role"` // decision_maker, advisor, contact
+	Department string                 `json:"department"`
+	Confidence float64                `json:"confidence"`
+	Context    string                 `json:"context"`
+	Contact    ContactInfo            `json:"contact"`
+	Metadata   map[string]interface{} `json:"metadata"`
+}
+
+// ContactEntity represents contact information
+type ContactEntity struct {
+	Email      string                 `json:"email"`
+	Phone      string                 `json:"phone"`
+	Address    string                 `json:"address"`
+	Company    string                 `json:"company"`
+	Confidence float64                `json:"confidence"`
+	Context    string                 `json:"context"`
+	Metadata   map[string]interface{} `json:"metadata"`
+}
+
+// HierarchyRelation represents organizational hierarchy
+type HierarchyRelation struct {
+	Superior    string  `json:"superior"`
+	Subordinate string  `json:"subordinate"`
+	Confidence  float64 `json:"confidence"`
+	Context     string  `json:"context"`
+}
+
+// ContactInfo represents contact details
+type ContactInfo struct {
+	Email   string `json:"email"`
+	Phone   string `json:"phone"`
+	Address string `json:"address"`
+}
+
+// DocumentEntityExtraction represents entity extraction from a single document
+type DocumentEntityExtraction struct {
+	DocumentID   string                      `json:"documentId"`
+	DocumentType string                      `json:"documentType"`
+	Companies    *CompanyDealExtraction      `json:"companies"`
+	Financial    *FinancialMetricsExtraction `json:"financial"`
+	Personnel    *PersonnelRoleExtraction    `json:"personnel"`
+	Confidence   float64                     `json:"confidence"`
+	Metadata     map[string]interface{}      `json:"metadata"`
+}
+
+// CrossDocumentValidation represents validation results across multiple documents
+type CrossDocumentValidation struct {
+	ConsolidatedEntities ConsolidatedEntities   `json:"consolidatedEntities"`
+	Conflicts            []EntityConflict       `json:"conflicts"`
+	Resolutions          []ConflictResolution   `json:"resolutions"`
+	Confidence           float64                `json:"confidence"`
+	Summary              ValidationSummary      `json:"summary"`
+	Metadata             map[string]interface{} `json:"metadata"`
+}
+
+// ConsolidatedEntities represents validated entities across documents
+type ConsolidatedEntities struct {
+	Companies []CompanyEntity            `json:"companies"`
+	Financial FinancialMetricsExtraction `json:"financial"`
+	Personnel []PersonEntity             `json:"personnel"`
+	Deals     []DealEntity               `json:"deals"`
+}
+
+// EntityConflict represents a conflict between entities from different documents
+type EntityConflict struct {
+	Type        string                 `json:"type"` // company, financial, personnel
+	Field       string                 `json:"field"`
+	Values      []ConflictValue        `json:"values"`
+	Severity    string                 `json:"severity"` // low, medium, high
+	Description string                 `json:"description"`
+	Metadata    map[string]interface{} `json:"metadata"`
+}
+
+// ConflictValue represents a conflicting value
+type ConflictValue struct {
+	Value      interface{} `json:"value"`
+	Source     string      `json:"source"`
+	Confidence float64     `json:"confidence"`
+	DocumentID string      `json:"documentId"`
+}
+
+// ConflictResolution represents how a conflict was resolved
+type ConflictResolution struct {
+	ConflictID  string                 `json:"conflictId"`
+	Resolution  string                 `json:"resolution"` // auto, manual, precedence
+	ChosenValue interface{}            `json:"chosenValue"`
+	Reasoning   string                 `json:"reasoning"`
+	Confidence  float64                `json:"confidence"`
+	Metadata    map[string]interface{} `json:"metadata"`
+}
+
+// ValidationSummary provides overall validation statistics
+type ValidationSummary struct {
+	TotalEntities     int     `json:"totalEntities"`
+	ValidatedEntities int     `json:"validatedEntities"`
+	ConflictsFound    int     `json:"conflictsFound"`
+	ConflictsResolved int     `json:"conflictsResolved"`
+	OverallConfidence float64 `json:"overallConfidence"`
+}

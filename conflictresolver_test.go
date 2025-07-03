@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"math"
 	"path/filepath"
 	"testing"
@@ -13,29 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Simple logger for testing
-type TestLogger struct{}
-
-func (tl *TestLogger) Info(format string, args ...interface{}) {
-	log.Printf("[INFO] "+format, args...)
-}
-
-func (tl *TestLogger) Debug(format string, args ...interface{}) {
-	log.Printf("[DEBUG] "+format, args...)
-}
-
-func (tl *TestLogger) Warn(format string, args ...interface{}) {
-	log.Printf("[WARN] "+format, args...)
-}
-
-func (tl *TestLogger) Error(format string, args ...interface{}) {
-	log.Printf("[ERROR] "+format, args...)
-}
+// TestLogger is now defined in test_utils.go
 
 // Test fixtures
 func createTestConflictResolver(t *testing.T) (*ConflictResolver, string) {
 	tempDir := t.TempDir()
-	logger := &TestLogger{}
+	logger := NewTestLogger()
 	return NewConflictResolver(tempDir, logger), tempDir
 }
 
@@ -466,7 +448,7 @@ func TestConflictResolver_Statistics(t *testing.T) {
 // Test persistence functionality
 func TestConflictResolver_Persistence(t *testing.T) {
 	tempDir := t.TempDir()
-	logger := &TestLogger{}
+	logger := NewTestLogger()
 	resolver := NewConflictResolver(tempDir, logger)
 	ctx := context.Background()
 
@@ -673,7 +655,7 @@ func TestConflictResolver_TemplateIntegration(t *testing.T) {
 // Benchmark conflict resolution performance
 func BenchmarkConflictResolver_ResolveConflict(b *testing.B) {
 	tempDir := b.TempDir()
-	logger := &TestLogger{}
+	logger := NewTestLogger()
 	resolver := NewConflictResolver(tempDir, logger)
 	ctx := context.Background()
 

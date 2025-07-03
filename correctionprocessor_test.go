@@ -282,13 +282,13 @@ func TestCorrectionProcessor_RAGLearning(t *testing.T) {
 	err := processor.DetectCorrection(correction)
 	assert.NoError(t, err)
 
-	// Check RAG learning storage
+	// Check RAG learning storage (via simple engine fallback)
 	key := fmt.Sprintf("correction_%s_%s", correction.CorrectionType, correction.FieldName)
-	knowledgeData := processor.ragLearning.knowledgeBase[key]
+	knowledgeData := processor.ragLearning.simpleEngine.knowledgeBase[key]
 	assert.NotNil(t, knowledgeData)
 
-	// Check vector store
-	embedding := processor.ragLearning.vectorStore[correction.ID]
+	// Check vector store (via simple engine fallback)
+	embedding := processor.ragLearning.simpleEngine.vectorStore[correction.ID]
 	assert.NotNil(t, embedding)
 	assert.Equal(t, 64, len(embedding))
 }

@@ -801,3 +801,454 @@ func maxInt(a, b int) int {
 	}
 	return b
 }
+
+// ENHANCED ENTITY EXTRACTION METHODS FOR TASK 1.3
+
+// ExtractCompanyAndDealNames extracts company names and deal names using rule-based patterns
+func (dp *DefaultProvider) ExtractCompanyAndDealNames(ctx context.Context, content string, documentType string) (*CompanyDealExtraction, error) {
+	atomic.AddInt64(&dp.stats.TotalRequests, 1)
+
+	result := &CompanyDealExtraction{
+		Companies:  []CompanyEntity{},
+		DealNames:  []DealEntity{},
+		Confidence: 0.6,
+		Metadata: map[string]interface{}{
+			"extraction_method": "rule_based",
+			"provider":          "default",
+		},
+		Warnings: []string{},
+	}
+
+	// Extract company names using capitalization patterns and business suffixes
+	companies := extractCompanyNames(content)
+	for _, company := range companies {
+		result.Companies = append(result.Companies, CompanyEntity{
+			Name:       company,
+			Role:       "unknown", // Rule-based extraction can't determine roles reliably
+			Confidence: 0.7,
+			Context:    "extracted using pattern matching",
+			Industry:   "",
+			Location:   "",
+			Metadata: map[string]interface{}{
+				"extraction_method": "pattern_matching",
+			},
+			Validated: false,
+		})
+	}
+
+	// Extract potential deal names (project names, code names)
+	dealNames := extractDealNames(content)
+	for _, dealName := range dealNames {
+		result.DealNames = append(result.DealNames, DealEntity{
+			Name:       dealName,
+			Type:       "unknown",
+			Status:     "unknown",
+			Confidence: 0.6,
+			Context:    "extracted using pattern matching",
+			Metadata: map[string]interface{}{
+				"extraction_method": "pattern_matching",
+			},
+		})
+	}
+
+	if len(result.Companies) == 0 && len(result.DealNames) == 0 {
+		result.Warnings = append(result.Warnings, "No companies or deal names could be extracted using rule-based patterns")
+		result.Confidence = 0.3
+	}
+
+	atomic.AddInt64(&dp.stats.SuccessfulCalls, 1)
+	return result, nil
+}
+
+// ExtractFinancialMetrics extracts financial metrics using pattern matching
+func (dp *DefaultProvider) ExtractFinancialMetrics(ctx context.Context, content string, documentType string) (*FinancialMetricsExtraction, error) {
+	atomic.AddInt64(&dp.stats.TotalRequests, 1)
+
+	result := &FinancialMetricsExtraction{
+		Currency:   "USD", // Default assumption
+		Period:     "unknown",
+		Confidence: 0.5,
+		Validated:  false,
+		Warnings:   []string{},
+		Metadata: map[string]interface{}{
+			"extraction_method": "pattern_matching",
+			"provider":          "default",
+		},
+		Multiples: make(map[string]FinancialMetric),
+		Ratios:    make(map[string]FinancialMetric),
+	}
+
+	// Extract monetary values and try to categorize them
+	monetaryValues := extractMonetaryValues(content)
+	if len(monetaryValues) > 0 {
+		// Assign first few values to common financial metrics
+		if len(monetaryValues) >= 1 {
+			result.Revenue = FinancialMetric{
+				Value:      monetaryValues[0].value,
+				Confidence: 0.6,
+				Source:     "pattern_extraction",
+				Context:    "first monetary value found",
+				Unit:       "dollars",
+				Validated:  false,
+			}
+		}
+		if len(monetaryValues) >= 2 {
+			result.EBITDA = FinancialMetric{
+				Value:      monetaryValues[1].value,
+				Confidence: 0.5,
+				Source:     "pattern_extraction",
+				Context:    "second monetary value found",
+				Unit:       "dollars",
+				Validated:  false,
+			}
+		}
+		if len(monetaryValues) >= 3 {
+			result.DealValue = FinancialMetric{
+				Value:      monetaryValues[2].value,
+				Confidence: 0.5,
+				Source:     "pattern_extraction",
+				Context:    "third monetary value found",
+				Unit:       "dollars",
+				Validated:  false,
+			}
+		}
+	}
+
+	// Extract percentages for ratios
+	percentages := extractPercentages(content)
+	for i, percentage := range percentages {
+		if i >= 3 { // Limit to first 3 percentages
+			break
+		}
+		ratioName := fmt.Sprintf("ratio_%d", i+1)
+		result.Ratios[ratioName] = FinancialMetric{
+			Value:      percentage,
+			Confidence: 0.5,
+			Source:     "pattern_extraction",
+			Context:    "percentage value found",
+			Unit:       "percentage",
+			Validated:  false,
+		}
+	}
+
+	if len(monetaryValues) == 0 && len(percentages) == 0 {
+		result.Warnings = append(result.Warnings, "No financial metrics could be extracted using pattern matching")
+		result.Confidence = 0.3
+	}
+
+	atomic.AddInt64(&dp.stats.SuccessfulCalls, 1)
+	return result, nil
+}
+
+// ExtractPersonnelAndRoles extracts personnel information using pattern matching
+func (dp *DefaultProvider) ExtractPersonnelAndRoles(ctx context.Context, content string, documentType string) (*PersonnelRoleExtraction, error) {
+	atomic.AddInt64(&dp.stats.TotalRequests, 1)
+
+	result := &PersonnelRoleExtraction{
+		Personnel:  []PersonEntity{},
+		Contacts:   []ContactEntity{},
+		Hierarchy:  []HierarchyRelation{},
+		Confidence: 0.5,
+		Metadata: map[string]interface{}{
+			"extraction_method": "pattern_matching",
+			"provider":          "default",
+		},
+		Warnings: []string{},
+	}
+
+	// Extract personnel using title patterns
+	personnel := extractPersonnelWithTitles(content)
+	for _, person := range personnel {
+		result.Personnel = append(result.Personnel, PersonEntity{
+			Name:       person.name,
+			Title:      person.title,
+			Company:    "",
+			Role:       classifyRole(person.title),
+			Department: classifyDepartment(person.title),
+			Confidence: 0.6,
+			Context:    "extracted using title pattern matching",
+			Contact:    ContactInfo{},
+			Metadata: map[string]interface{}{
+				"extraction_method": "pattern_matching",
+			},
+		})
+	}
+
+	// Extract contact information
+	contacts := extractContactInfo(content)
+	for _, contact := range contacts {
+		result.Contacts = append(result.Contacts, ContactEntity{
+			Email:      contact.email,
+			Phone:      contact.phone,
+			Address:    contact.address,
+			Company:    "",
+			Confidence: 0.7,
+			Context:    "extracted using pattern matching",
+			Metadata: map[string]interface{}{
+				"extraction_method": "pattern_matching",
+			},
+		})
+	}
+
+	if len(result.Personnel) == 0 && len(result.Contacts) == 0 {
+		result.Warnings = append(result.Warnings, "No personnel or contact information could be extracted using pattern matching")
+		result.Confidence = 0.3
+	}
+
+	atomic.AddInt64(&dp.stats.SuccessfulCalls, 1)
+	return result, nil
+}
+
+// ValidateEntitiesAcrossDocuments performs basic validation using rule-based logic
+func (dp *DefaultProvider) ValidateEntitiesAcrossDocuments(ctx context.Context, documentExtractions []DocumentEntityExtraction) (*CrossDocumentValidation, error) {
+	atomic.AddInt64(&dp.stats.TotalRequests, 1)
+
+	result := &CrossDocumentValidation{
+		ConsolidatedEntities: ConsolidatedEntities{
+			Companies: []CompanyEntity{},
+			Personnel: []PersonEntity{},
+			Deals:     []DealEntity{},
+		},
+		Conflicts:   []EntityConflict{},
+		Resolutions: []ConflictResolution{},
+		Confidence:  0.5,
+		Summary: ValidationSummary{
+			TotalEntities:     0,
+			ValidatedEntities: 0,
+			ConflictsFound:    0,
+			ConflictsResolved: 0,
+			OverallConfidence: 0.5,
+		},
+		Metadata: map[string]interface{}{
+			"validation_method":  "rule_based",
+			"provider":           "default",
+			"documents_analyzed": len(documentExtractions),
+		},
+	}
+
+	// Simple consolidation: collect all unique entities
+	companyMap := make(map[string]CompanyEntity)
+	personnelMap := make(map[string]PersonEntity)
+	dealMap := make(map[string]DealEntity)
+
+	for _, extraction := range documentExtractions {
+		result.Summary.TotalEntities++
+
+		if extraction.Companies != nil {
+			for _, company := range extraction.Companies.Companies {
+				if existing, exists := companyMap[company.Name]; exists {
+					// Simple conflict detection: different roles for same company
+					if existing.Role != company.Role && existing.Role != "unknown" && company.Role != "unknown" {
+						result.Conflicts = append(result.Conflicts, EntityConflict{
+							Type:  "company",
+							Field: "role",
+							Values: []ConflictValue{
+								{Value: existing.Role, Source: "document_1", Confidence: existing.Confidence},
+								{Value: company.Role, Source: extraction.DocumentID, Confidence: company.Confidence},
+							},
+							Severity:    "medium",
+							Description: fmt.Sprintf("Company %s has conflicting roles", company.Name),
+						})
+					}
+				}
+				companyMap[company.Name] = company
+			}
+		}
+
+		if extraction.Personnel != nil {
+			for _, person := range extraction.Personnel.Personnel {
+				personnelMap[person.Name] = person
+			}
+		}
+	}
+
+	// Convert maps to slices
+	for _, company := range companyMap {
+		result.ConsolidatedEntities.Companies = append(result.ConsolidatedEntities.Companies, company)
+	}
+	for _, person := range personnelMap {
+		result.ConsolidatedEntities.Personnel = append(result.ConsolidatedEntities.Personnel, person)
+	}
+	for _, deal := range dealMap {
+		result.ConsolidatedEntities.Deals = append(result.ConsolidatedEntities.Deals, deal)
+	}
+
+	result.Summary.ValidatedEntities = len(result.ConsolidatedEntities.Companies) +
+		len(result.ConsolidatedEntities.Personnel) + len(result.ConsolidatedEntities.Deals)
+	result.Summary.ConflictsFound = len(result.Conflicts)
+	result.Summary.ConflictsResolved = 0 // Rule-based resolution is limited
+
+	atomic.AddInt64(&dp.stats.SuccessfulCalls, 1)
+	return result, nil
+}
+
+// Helper functions for enhanced entity extraction
+
+type PersonWithTitle struct {
+	name  string
+	title string
+}
+
+type ContactExtraction struct {
+	email   string
+	phone   string
+	address string
+}
+
+// extractCompanyNames extracts company names using business suffixes and capitalization patterns
+func extractCompanyNames(content string) []string {
+	var companies []string
+
+	// Business suffixes to look for
+	suffixes := []string{"Inc", "LLC", "Corp", "Corporation", "Company", "Co", "Ltd", "Limited", "LP", "LLP"}
+
+	words := strings.Fields(content)
+	for i, word := range words {
+		for _, suffix := range suffixes {
+			if strings.Contains(word, suffix) {
+				// Look for preceding capitalized words to form company name
+				start := maxInt(0, i-3)
+				companyWords := []string{}
+
+				for j := start; j <= i; j++ {
+					if len(words[j]) > 0 && strings.Title(words[j]) == words[j] {
+						companyWords = append(companyWords, words[j])
+					}
+				}
+
+				if len(companyWords) > 0 {
+					companies = append(companies, strings.Join(companyWords, " "))
+				}
+			}
+		}
+	}
+
+	return removeDuplicateStrings(companies)
+}
+
+// extractDealNames extracts potential deal names (project names, code names)
+func extractDealNames(content string) []string {
+	var dealNames []string
+
+	// Look for "Project X" patterns
+	words := strings.Fields(content)
+	for i, word := range words {
+		if strings.ToLower(word) == "project" && i+1 < len(words) {
+			nextWord := words[i+1]
+			if len(nextWord) > 0 && strings.Title(nextWord) == nextWord {
+				dealNames = append(dealNames, "Project "+nextWord)
+			}
+		}
+	}
+
+	return removeDuplicateStrings(dealNames)
+}
+
+// extractPersonnelWithTitles extracts people with their titles
+func extractPersonnelWithTitles(content string) []PersonWithTitle {
+	var personnel []PersonWithTitle
+
+	// Common executive titles
+	titles := []string{"CEO", "CFO", "CTO", "COO", "President", "Vice President", "Director", "Manager", "Chairman"}
+
+	words := strings.Fields(content)
+	for i, word := range words {
+		for _, title := range titles {
+			if strings.Contains(strings.ToUpper(word), title) {
+				// Look for name before or after title
+				if i > 0 && isLikelyName(words[i-1]) {
+					personnel = append(personnel, PersonWithTitle{
+						name:  words[i-1],
+						title: title,
+					})
+				}
+				if i+1 < len(words) && isLikelyName(words[i+1]) {
+					personnel = append(personnel, PersonWithTitle{
+						name:  words[i+1],
+						title: title,
+					})
+				}
+			}
+		}
+	}
+
+	return personnel
+}
+
+// extractContactInfo extracts email addresses and phone numbers
+func extractContactInfo(content string) []ContactExtraction {
+	var contacts []ContactExtraction
+
+	// Simple email pattern
+	words := strings.Fields(content)
+	for _, word := range words {
+		if strings.Contains(word, "@") && strings.Contains(word, ".") {
+			contacts = append(contacts, ContactExtraction{
+				email: word,
+			})
+		}
+	}
+
+	return contacts
+}
+
+// isLikelyName checks if a word is likely a person's name
+func isLikelyName(word string) bool {
+	if len(word) < 2 {
+		return false
+	}
+	// Check if it's capitalized and doesn't contain numbers
+	return strings.Title(word) == word && !containsNumbers(word)
+}
+
+// containsNumbers checks if a string contains any digits
+func containsNumbers(s string) bool {
+	for _, char := range s {
+		if char >= '0' && char <= '9' {
+			return true
+		}
+	}
+	return false
+}
+
+// classifyRole classifies a person's role based on their title
+func classifyRole(title string) string {
+	title = strings.ToLower(title)
+	if strings.Contains(title, "ceo") || strings.Contains(title, "president") || strings.Contains(title, "chairman") {
+		return "decision_maker"
+	}
+	if strings.Contains(title, "advisor") || strings.Contains(title, "consultant") {
+		return "advisor"
+	}
+	return "contact"
+}
+
+// classifyDepartment classifies department based on title
+func classifyDepartment(title string) string {
+	title = strings.ToLower(title)
+	if strings.Contains(title, "cfo") || strings.Contains(title, "financial") {
+		return "finance"
+	}
+	if strings.Contains(title, "cto") || strings.Contains(title, "technology") {
+		return "technology"
+	}
+	if strings.Contains(title, "ceo") || strings.Contains(title, "president") {
+		return "executive"
+	}
+	return "unknown"
+}
+
+// removeDuplicateStrings removes duplicate strings from a slice
+func removeDuplicateStrings(slice []string) []string {
+	seen := make(map[string]bool)
+	result := []string{}
+
+	for _, item := range slice {
+		if !seen[item] {
+			seen[item] = true
+			result = append(result, item)
+		}
+	}
+
+	return result
+}

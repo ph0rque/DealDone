@@ -361,7 +361,7 @@ func (ad *AnomalyDetector) detectStatisticalAnomalies(metric string, data []Data
 	}
 
 	// Use moving average and standard deviation
-	windowSize := min(len(data)/4, 6) // Adaptive window size
+	windowSize := max(3, min(len(data)/2, 6)) // Adaptive window size, minimum 3 points
 
 	for i := windowSize; i < len(data); i++ {
 		// Calculate statistics for the window
@@ -746,9 +746,9 @@ func (ad *AnomalyDetector) detectTrendReversals(data map[string][]DataPoint) []P
 			firstHalfTrend := ad.calculateTrendDirection(series[:midpoint])
 			secondHalfTrend := ad.calculateTrendDirection(series[midpoint:])
 
-			// Detect reversal
-			if (firstHalfTrend > 0.1 && secondHalfTrend < -0.1) ||
-				(firstHalfTrend < -0.1 && secondHalfTrend > 0.1) {
+			// Detect reversal (lowered threshold for better sensitivity)
+			if (firstHalfTrend > 0.01 && secondHalfTrend < -0.01) ||
+				(firstHalfTrend < -0.01 && secondHalfTrend > 0.01) {
 				anomaly := PatternAnomaly{
 					ID:          fmt.Sprintf("trend_%s_%d", metric, len(anomalies)),
 					Type:        "trend_reversal",
@@ -1057,7 +1057,7 @@ func (ad *AnomalyDetector) generateAnomalySummary(result *AnomalyDetectionResult
 			"Multiple financial anomalies detected indicating potential systemic issues")
 	}
 
-	if result.DataQuality.OverallScore < 0.7 {
+	if result.DataQuality != nil && result.DataQuality.OverallScore < 0.7 {
 		summary.KeyFindings = append(summary.KeyFindings,
 			"Data quality issues may affect anomaly detection accuracy")
 	}
@@ -1105,7 +1105,7 @@ func (ad *AnomalyDetector) generateRecommendations(result *AnomalyDetectionResul
 	}
 
 	// Data quality issues
-	if result.DataQuality.OverallScore < 0.7 {
+	if result.DataQuality != nil && result.DataQuality.OverallScore < 0.7 {
 		recommendations = append(recommendations, AnomalyRecommendation{
 			Priority:    "high",
 			Type:        "process_change",
