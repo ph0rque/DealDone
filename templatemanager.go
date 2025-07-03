@@ -248,6 +248,23 @@ func (tm *TemplateManager) TemplateExists(templateName string) bool {
 	return false
 }
 
+// GetTemplatePathByID finds a template by its ID (name) and returns its full path.
+func (tm *TemplateManager) GetTemplatePathByID(templateID string) (string, error) {
+	templates, err := tm.ListTemplates()
+	if err != nil {
+		return "", fmt.Errorf("could not list templates: %w", err)
+	}
+
+	for _, template := range templates {
+		// Check against the template name (without extension) and the full filename
+		if template.Name == templateID || filepath.Base(template.Path) == templateID {
+			return template.Path, nil
+		}
+	}
+
+	return "", fmt.Errorf("template with ID '%s' not found", templateID)
+}
+
 // GenerateDefaultTemplates creates the default template files
 func (tm *TemplateManager) GenerateDefaultTemplates() error {
 	templatesPath := tm.configService.GetTemplatesPath()

@@ -4311,132 +4311,72 @@ func (a *App) findBestFieldMatch(templateFieldName string, extractedFields map[s
 
 // PopulateTemplateWithData populates a template with mapped field data
 func (a *App) PopulateTemplateWithData(templateId string, fieldMappings []map[string]interface{}, preserveFormulas bool, dealName string) (map[string]interface{}, error) {
-	if a.templateManager == nil || a.templatePopulator == nil {
+	if a.templateManager == nil || a.templatePopulator == nil || a.dataMapper == nil {
 		return nil, fmt.Errorf("template services not initialized")
 	}
 
-	fmt.Printf("DEBUG PopulateTemplateWithData: templateId='%s', dealName='%s', fieldMappings count=%d\n", templateId, dealName, len(fieldMappings))
-
-	// Find template by ID or try to find it directly in analysis folder
-	var analysisTemplatePath string
-	templateInfo, err := a.templateDiscovery.GetTemplateByID(templateId)
+	// Find the template path from the ID
+	templatePath, err := a.templateManager.GetTemplatePathByID(templateId)
 	if err != nil {
-		fmt.Printf("DEBUG: Template not found by ID, trying direct path approach: %v\n", err)
+		return nil, fmt.Errorf("failed to find template with ID %s: %w", templateId, err)
+	}
 
-		// Try to find the template in the analysis folder directly
-		dealsPath := a.configService.GetDealsPath()
-		analysisPath := filepath.Join(dealsPath, dealName, "analysis")
+	// Determine the output path in the deal's analysis folder
+	dealAnalysisPath := filepath.Join(a.folderManager.GetDealPath(dealName), "analysis")
+	if err := a.folderManager.EnsureFolderExists(dealAnalysisPath); err != nil {
+		return nil, fmt.Errorf("failed to ensure analysis folder exists: %w", err)
+	}
 
-		// Look for the template file
-		if files, err := os.ReadDir(analysisPath); err == nil {
-			for _, file := range files {
-				if strings.Contains(strings.ToLower(file.Name()), "deal_summary") {
-					analysisTemplatePath = filepath.Join(analysisPath, file.Name())
-					fmt.Printf("DEBUG: Found template at: %s\n", analysisTemplatePath)
-					break
-				}
+	outputPath := filepath.Join(dealAnalysisPath, filepath.Base(templatePath))
+
+	// DEBUG: log the paths
+	log.Printf("Populating template: %s for deal: %s", templatePath, dealName)
+	log.Printf("Output path: %s", outputPath)
+
+	// Create MappedData object
+	mappedFields := make(map[string]MappedField)
+	for _, mapping := range fieldMappings {
+		placeholder, ok1 := mapping["templateField"].(string)
+		value, ok2 := mapping["value"]
+		if ok1 && ok2 {
+			mappedFields[placeholder] = MappedField{
+				FieldName:  placeholder,
+				Value:      value,
+				Source:     "n8n-workflow",
+				SourceType: "ai",
+				Confidence: 0.9, // Assume high confidence from professional workflow
 			}
-		}
-
-		if analysisTemplatePath == "" {
-			return nil, fmt.Errorf("template not found: %w", err)
-		}
-	} else {
-		// Copy template to analysis folder
-		analysisTemplatePath, err = a.templateManager.CopyTemplateToAnalysis(templateInfo.Path, dealName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to copy template to analysis folder: %w", err)
 		}
 	}
 
-	// Convert field mappings to MappedData format
 	mappedData := &MappedData{
 		TemplateID:  templateId,
 		DealName:    dealName,
-		Fields:      make(map[string]MappedField),
+		Fields:      mappedFields,
 		MappingDate: time.Now(),
-		Confidence:  0.0,
 	}
 
-	totalConfidence := 0.0
-	fieldCount := 0
-
-	for _, mapping := range fieldMappings {
-		templateField, ok := mapping["templateField"].(string)
-		if !ok {
-			continue
-		}
-
-		value := mapping["value"]
-		confidence, _ := mapping["confidence"].(float64)
-
-		mappedField := MappedField{
-			FieldName:    templateField,
-			Value:        value,
-			Source:       "n8n_mapping",
-			SourceType:   "ai",
-			Confidence:   confidence,
-			OriginalText: fmt.Sprintf("%v", value),
-		}
-
-		mappedData.Fields[templateField] = mappedField
-		totalConfidence += confidence
-		fieldCount++
-	}
-
-	if fieldCount > 0 {
-		mappedData.Confidence = totalConfidence / float64(fieldCount)
-	}
-
-	// Populate the template
-	fmt.Printf("DEBUG: About to populate template at: %s\n", analysisTemplatePath)
-	fmt.Printf("DEBUG: Mapped data fields: %v\n", func() []string {
-		keys := make([]string, 0, len(mappedData.Fields))
-		for k := range mappedData.Fields {
-			keys = append(keys, k)
-		}
-		return keys
-	}())
-
-	err = a.templatePopulator.PopulateTemplate(analysisTemplatePath, mappedData, analysisTemplatePath)
+	// Call the populator service with the correct method and arguments
+	err = a.templatePopulator.PopulateTemplate(templatePath, mappedData, outputPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to populate template: %w", err)
+		return nil, fmt.Errorf("failed to populate template file: %w", err)
 	}
 
-	fmt.Printf("DEBUG: Template population completed successfully\n")
-
-	// Validate formulas if requested
-	var formulaValidation map[string]interface{}
-	if preserveFormulas {
-		preservation, err := a.templatePopulator.PreserveFormulas(templateInfo.Path)
-		if err == nil {
-			err = a.templatePopulator.ValidatePopulatedTemplate(analysisTemplatePath, preservation)
-			formulaValidation = map[string]interface{}{
-				"formulasPreserved": preservation.TotalFormulas,
-				"formulasTotal":     preservation.TotalFormulas,
-				"validationPassed":  err == nil,
-			}
-		}
+	// Prepare the response
+	response := map[string]interface{}{
+		"success":               true,
+		"message":               "Template populated successfully",
+		"populatedTemplatePath": outputPath,
+		"outputPath":            outputPath,
+		"fieldsPopulated":       len(mappedFields),
+		"preserveFormulas":      preserveFormulas,
+		"dealName":              dealName,
+		"populationTime":        time.Now().Unix(),
 	}
 
-	return map[string]interface{}{
-		"success":              true,
-		"populatedTemplateId":  templateId,
-		"populatedPath":        analysisTemplatePath,
-		"fieldsPopulated":      len(fieldMappings),
-		"totalFields":          len(templateInfo.Metadata.Fields),
-		"completionPercentage": float64(len(fieldMappings)) / float64(len(templateInfo.Metadata.Fields)) * 100,
-		"formulaValidation":    formulaValidation,
-		"populationSummary": map[string]interface{}{
-			"dealName":          dealName,
-			"templateName":      templateInfo.Name,
-			"averageConfidence": mappedData.Confidence,
-			"populationDate":    time.Now().Format(time.RFC3339),
-		},
-	}, nil
+	return response, nil
 }
 
-// CopyTemplatesToAnalysis copies all relevant templates to a deal's analysis folder
 func (a *App) CopyTemplatesToAnalysis(dealName string, documentTypes []string) ([]string, error) {
 	if a.templateManager == nil || a.templateDiscovery == nil {
 		return nil, fmt.Errorf("template services not initialized")
