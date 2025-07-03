@@ -1,0 +1,439 @@
+{
+  "name": "Enhanced Analyze All - DealDone",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "enhanced-analyze-all",
+        "options": {
+          "responseMode": "onReceived"
+        }
+      },
+      "id": "webhook-trigger",
+      "name": "Enhanced Analyze All Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\nconst requiredFields = ['dealName', 'documentPaths', 'triggerType', 'jobId', 'timestamp'];\nconst missingFields = requiredFields.filter(field => !payload[field]);\n\nif (missingFields.length > 0) {\n  throw new Error(`Missing required fields: ${missingFields.join(', ')}`);\n}\n\nif (!Array.isArray(payload.documentPaths) || payload.documentPaths.length === 0) {\n  throw new Error('documentPaths must be a non-empty array');\n}\n\n// Validate deal name format\nif (!/^[a-zA-Z0-9_-]+$/.test(payload.dealName)) {\n  throw new Error('dealName contains invalid characters');\n}\n\nreturn {\n  ...payload,\n  processedAt: Date.now(),\n  workflowExecutionId: $workflow.id,\n  processingStatus: 'validated',\n  priority: payload.priority || 'normal',\n  totalDocuments: payload.documentPaths.length,\n  currentStage: 'payload-validation-completed'\n};"
+      },
+      "id": "payload-validator",
+      "name": "Enhanced Payload Validator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\nconst documentPaths = payload.documentPaths;\nconst processedDocuments = [];\n\n// Process each document in parallel for classification\nfor (let i = 0; i < documentPaths.length; i++) {\n  const docPath = documentPaths[i];\n  const docName = docPath.split('/').pop();\n  \n  processedDocuments.push({\n    index: i,\n    documentPath: docPath,\n    documentName: docName,\n    dealName: payload.dealName,\n    jobId: payload.jobId,\n    processingStatus: 'ready-for-classification',\n    batchId: payload.jobId + '_doc_' + i\n  });\n}\n\nreturn {\n  ...payload,\n  processedDocuments,\n  currentStage: 'document-batch-prepared',\n  documentsToProcess: processedDocuments.length\n};"
+      },
+      "id": "document-batch-processor",
+      "name": "Document Batch Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 400]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "document-splitter",
+      "name": "Document Splitter",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/classify-document",
+        "options": { "timeout": 90000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"documentPath\": \"{{ $json.documentPath }}\", \"documentName\": \"{{ $json.documentName }}\", \"dealName\": \"{{ $json.dealName }}\", \"jobId\": \"{{ $json.batchId }}\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "ai-document-classifier",
+      "name": "AI Document Classification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/extract-entities",
+        "options": { "timeout": 120000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"documentPath\": \"{{ $json.documentPath }}\", \"documentType\": \"{{ $json.body.documentType || 'general' }}\", \"dealName\": \"{{ $json.dealName }}\", \"jobId\": \"{{ $json.batchId }}\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "ai-entity-extractor",
+      "name": "AI Entity Extraction",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1340, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\nconst classificationResult = payload.body || {};\nconst entityResult = payload.entityExtraction || {};\n\n// Process classification results\nconst documentType = classificationResult.documentType || 'general';\nconst confidence = classificationResult.confidence || 0.5;\nconst keywords = classificationResult.keywords || [];\n\n// Process entity extraction results\nconst entities = entityResult.entities || {};\nconst companyName = entities.companyName || entities.company || '';\nconst dealValue = entities.dealValue || entities.value || '';\nconst revenue = entities.revenue || '';\nconst ebitda = entities.ebitda || '';\n\n// Create enhanced document analysis result\nconst analysisResult = {\n  documentPath: payload.documentPath,\n  documentName: payload.documentName,\n  batchId: payload.batchId,\n  classification: {\n    documentType,\n    confidence,\n    keywords,\n    processingDecision: confidence >= 0.8 ? 'automated' : confidence >= 0.6 ? 'assisted' : 'manual'\n  },\n  entities: {\n    companyName,\n    dealValue,\n    revenue,\n    ebitda,\n    extractedCount: Object.keys(entities).length\n  },\n  processingStatus: 'analysis-completed',\n  analysisTimestamp: Date.now()\n};\n\nreturn {\n  ...payload,\n  analysisResult,\n  currentStage: 'document-analysis-completed'\n};"
+      },
+      "id": "analysis-result-processor",
+      "name": "Analysis Result Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const allResults = $input.all();\nconst firstItem = allResults[0];\n\n// Aggregate all document analysis results\nconst documentAnalyses = allResults.map(item => item.json.analysisResult);\nconst documentTypes = [...new Set(documentAnalyses.map(doc => doc.classification.documentType))];\nconst averageConfidence = documentAnalyses.reduce((sum, doc) => sum + doc.classification.confidence, 0) / documentAnalyses.length;\n\n// Extract all entities for cross-document validation\nconst allEntities = {\n  companyNames: [...new Set(documentAnalyses.map(doc => doc.entities.companyName).filter(name => name))],\n  dealValues: [...new Set(documentAnalyses.map(doc => doc.entities.dealValue).filter(value => value))],\n  revenues: [...new Set(documentAnalyses.map(doc => doc.entities.revenue).filter(value => value))],\n  ebitdas: [...new Set(documentAnalyses.map(doc => doc.entities.ebitda).filter(value => value))]\n};\n\n// Determine primary entities (most frequently mentioned)\nconst primaryEntities = {\n  companyName: allEntities.companyNames[0] || 'Unknown Company',\n  dealValue: allEntities.dealValues[0] || '0',\n  revenue: allEntities.revenues[0] || '0',\n  ebitda: allEntities.ebitdas[0] || '0'\n};\n\nreturn {\n  ...firstItem.json,\n  documentAnalyses,\n  documentTypes,\n  averageConfidence,\n  allEntities,\n  primaryEntities,\n  currentStage: 'cross-document-analysis-completed',\n  readyForTemplateDiscovery: true\n};"
+      },
+      "id": "cross-document-aggregator",
+      "name": "Cross-Document Analysis Aggregator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/discover-templates-enhanced",
+        "options": { "timeout": 120000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"documentTypes\": {{ JSON.stringify($json.documentTypes) }}, \"dealName\": \"{{ $json.dealName }}\", \"entities\": {{ JSON.stringify($json.primaryEntities) }}, \"confidence\": {{ $json.averageConfidence }}, \"jobId\": \"{{ $json.jobId }}\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "enhanced-template-discovery",
+      "name": "Enhanced Template Discovery",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2000, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\nconst templateResult = payload.body || {};\nconst templates = templateResult.templates || [];\n\nconst templateDiscovery = {\n  templatesFound: templates.length,\n  templates: templates.map(t => ({\n    templateId: t.templateId,\n    templateName: t.templateName,\n    relevanceScore: t.relevanceScore || 0,\n    fieldCount: t.fieldCount || 0,\n    category: t.category || 'general',\n    priority: t.priority || 'normal'\n  })),\n  bestMatch: templates.length > 0 ? templates[0] : null,\n  processingReady: templates.length > 0,\n  recommendedTemplates: templates.filter(t => (t.relevanceScore || 0) > 0.7)\n};\n\nreturn {\n  ...payload,\n  templateDiscovery,\n  currentStage: 'template-discovery-completed',\n  readyForFieldMapping: templateDiscovery.processingReady\n};"
+      },
+      "id": "template-discovery-processor",
+      "name": "Template Discovery Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "id": "templates-available",
+              "leftValue": "={{ $json.templateDiscovery.templatesFound }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ]
+        }
+      },
+      "id": "template-availability-router",
+      "name": "Template Availability Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2440, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/semantic-field-mapping",
+        "options": { "timeout": 150000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"templates\": {{ JSON.stringify($json.templateDiscovery.templates) }}, \"extractedEntities\": {{ JSON.stringify($json.primaryEntities) }}, \"documentAnalyses\": {{ JSON.stringify($json.documentAnalyses) }}, \"dealName\": \"{{ $json.dealName }}\", \"jobId\": \"{{ $json.jobId }}\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "semantic-field-mapper",
+      "name": "Semantic Field Mapping Engine",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2660, 350]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\nconst mappingResult = payload.body || {};\nconst fieldMappings = mappingResult.fieldMappings || [];\n\nconst semanticMapping = {\n  fieldsDiscovered: fieldMappings.length,\n  mappings: fieldMappings.map(mapping => ({\n    templateField: mapping.templateField,\n    extractedValue: mapping.extractedValue,\n    confidence: mapping.confidence || 0,\n    dataType: mapping.dataType || 'text',\n    formattedValue: mapping.formattedValue || mapping.extractedValue,\n    source: mapping.source || 'ai-extraction'\n  })),\n  averageConfidence: fieldMappings.length > 0 ? \n    fieldMappings.reduce((sum, m) => sum + (m.confidence || 0), 0) / fieldMappings.length : 0,\n  readyForPopulation: fieldMappings.length > 0 && \n    fieldMappings.some(m => (m.confidence || 0) > 0.6),\n  qualityScore: calculateMappingQuality(fieldMappings)\n};\n\nfunction calculateMappingQuality(mappings) {\n  if (mappings.length === 0) return 0;\n  \n  const highConfidenceMappings = mappings.filter(m => (m.confidence || 0) > 0.8).length;\n  const mediumConfidenceMappings = mappings.filter(m => (m.confidence || 0) > 0.6 && (m.confidence || 0) <= 0.8).length;\n  \n  return (highConfidenceMappings * 1.0 + mediumConfidenceMappings * 0.7) / mappings.length;\n}\n\nreturn {\n  ...payload,\n  semanticMapping,\n  currentStage: 'semantic-field-mapping-completed',\n  readyForTemplatePopulation: semanticMapping.readyForPopulation\n};"
+      },
+      "id": "semantic-mapping-processor",
+      "name": "Semantic Mapping Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2880, 350]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/professional-template-population",
+        "options": { "timeout": 180000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"templates\": {{ JSON.stringify($json.templateDiscovery.templates) }}, \"fieldMappings\": {{ JSON.stringify($json.semanticMapping.mappings) }}, \"preserveFormulas\": true, \"formatCurrency\": true, \"formatDates\": true, \"dealName\": \"{{ $json.dealName }}\", \"jobId\": \"{{ $json.jobId }}\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "professional-template-populator",
+      "name": "Professional Template Population",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [3100, 350]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\nconst populationResult = payload.body || {};\n\nconst templatePopulation = {\n  populationSuccess: populationResult.success || false,\n  templatesPopulated: populationResult.templatesPopulated || 0,\n  fieldsPopulated: populationResult.fieldsPopulated || 0,\n  formulasPreserved: populationResult.formulasPreserved || 0,\n  currencyFormatted: populationResult.currencyFormatted || 0,\n  populatedTemplateIds: populationResult.populatedTemplateIds || [],\n  populationSummary: populationResult.populationSummary || {},\n  completionPercentage: populationResult.completionPercentage || 0,\n  qualityMetrics: populationResult.qualityMetrics || {}\n};\n\nreturn {\n  ...payload,\n  templatePopulation,\n  currentStage: 'professional-template-population-completed',\n  readyForQualityValidation: templatePopulation.populationSuccess\n};"
+      },
+      "id": "population-result-processor",
+      "name": "Population Result Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3320, 350]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/ai-quality-validation",
+        "options": { "timeout": 120000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"populatedTemplates\": {{ JSON.stringify($json.templatePopulation.populatedTemplateIds) }}, \"fieldMappings\": {{ JSON.stringify($json.semanticMapping.mappings) }}, \"entities\": {{ JSON.stringify($json.primaryEntities) }}, \"dealName\": \"{{ $json.dealName }}\", \"jobId\": \"{{ $json.jobId }}\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "ai-quality-validator",
+      "name": "AI Quality Validation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [3540, 350]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\nconst validationResult = payload.body || {};\n\n// Calculate comprehensive quality assessment\nconst qualityAssessment = {\n  overallScore: validationResult.overallScore || 0,\n  finalStatus: validationResult.finalStatus || 'needs-review',\n  validationChecks: {\n    logicalConsistency: validationResult.logicalConsistency || false,\n    businessRuleCompliance: validationResult.businessRuleCompliance || false,\n    dataFormatting: validationResult.dataFormatting || false,\n    completeness: validationResult.completeness || false\n  },\n  qualityMetrics: {\n    classificationQuality: {\n      confidence: payload.averageConfidence || 0,\n      weight: 0.2\n    },\n    templateDiscoveryQuality: {\n      templatesFound: payload.templateDiscovery?.templatesFound || 0,\n      bestMatchScore: payload.templateDiscovery?.bestMatch?.relevanceScore || 0,\n      weight: 0.2\n    },\n    fieldMappingQuality: {\n      fieldsExtracted: payload.semanticMapping?.fieldsDiscovered || 0,\n      averageConfidence: payload.semanticMapping?.averageConfidence || 0,\n      weight: 0.3\n    },\n    populationQuality: {\n      completionPercentage: payload.templatePopulation?.completionPercentage || 0,\n      formulasPreserved: payload.templatePopulation?.formulasPreserved || 0,\n      weight: 0.3\n    }\n  },\n  recommendations: validationResult.recommendations || [],\n  criticalIssues: validationResult.criticalIssues || []\n};\n\n// Calculate weighted overall score if not provided\nif (!validationResult.overallScore) {\n  const metrics = qualityAssessment.qualityMetrics;\n  qualityAssessment.overallScore = \n    (metrics.classificationQuality.confidence * metrics.classificationQuality.weight) +\n    (metrics.templateDiscoveryQuality.bestMatchScore * metrics.templateDiscoveryQuality.weight) +\n    (metrics.fieldMappingQuality.averageConfidence * metrics.fieldMappingQuality.weight) +\n    (metrics.populationQuality.completionPercentage / 100 * metrics.populationQuality.weight);\n}\n\n// Determine final status if not provided\nif (!validationResult.finalStatus) {\n  const score = qualityAssessment.overallScore;\n  qualityAssessment.finalStatus = score >= 0.8 ? 'excellent' : \n                                 score >= 0.6 ? 'good' : \n                                 score >= 0.4 ? 'acceptable' : 'needs-review';\n}\n\nreturn {\n  ...payload,\n  qualityAssessment,\n  currentStage: 'ai-quality-validation-completed',\n  readyForResultAggregation: true\n};"
+      },
+      "id": "quality-assessment-processor",
+      "name": "Quality Assessment Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3760, 350]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\n\n// Compile comprehensive enhanced analysis results\nconst enhancedAnalysisResults = {\n  jobId: payload.jobId,\n  dealName: payload.dealName,\n  workflowType: 'enhanced-analyze-all',\n  status: 'completed',\n  processingTime: {\n    startTime: payload.processedAt,\n    endTime: Date.now(),\n    durationMs: Date.now() - payload.processedAt\n  },\n  documentAnalysis: {\n    totalDocuments: payload.totalDocuments,\n    documentTypes: payload.documentTypes,\n    averageConfidence: payload.averageConfidence,\n    processedDocuments: payload.documentAnalyses\n  },\n  entityExtraction: {\n    primaryEntities: payload.primaryEntities,\n    allEntities: payload.allEntities,\n    extractionQuality: 'high'\n  },\n  templateDiscovery: payload.templateDiscovery,\n  semanticMapping: payload.semanticMapping,\n  templatePopulation: payload.templatePopulation,\n  qualityAssessment: payload.qualityAssessment,\n  summary: {\n    overallQuality: payload.qualityAssessment?.finalStatus || 'unknown',\n    overallScore: payload.qualityAssessment?.overallScore || 0,\n    templatesProcessed: payload.templateDiscovery?.templatesFound || 0,\n    fieldsExtracted: payload.semanticMapping?.fieldsDiscovered || 0,\n    populationComplete: payload.templatePopulation?.populationSuccess || false,\n    currencyFormatted: payload.templatePopulation?.currencyFormatted || 0,\n    formulasPreserved: payload.templatePopulation?.formulasPreserved || 0\n  },\n  metadata: {\n    workflowVersion: '2.0.0',\n    processingNode: 'enhanced-analyze-all',\n    aiProvider: 'chatgpt',\n    timestamp: Date.now()\n  }\n};\n\nreturn enhancedAnalysisResults;"
+      },
+      "id": "enhanced-result-aggregator",
+      "name": "Enhanced Result Aggregator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3980, 350]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/webhook/enhanced-analyze-all-results",
+        "options": { "timeout": 60000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-webhook-key" },
+            { "name": "X-Timestamp", "value": "={{ Math.floor(Date.now() / 1000) }}" },
+            { "name": "X-Workflow-Type", "value": "enhanced-analyze-all" }
+          ]
+        }
+      },
+      "id": "enhanced-webhook-response",
+      "name": "Enhanced DealDone Webhook Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [4200, 350]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:8081/no-templates-available",
+        "options": { "timeout": 30000 },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"jobId\": \"{{ $json.jobId }}\", \"dealName\": \"{{ $json.dealName }}\", \"documentTypes\": {{ JSON.stringify($json.documentTypes) }}, \"reason\": \"No suitable templates found for document types\", \"suggestedAction\": \"Create custom templates or review document classification\"}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-API-Key", "value": "dealdone-api-key" }
+          ]
+        }
+      },
+      "id": "no-templates-handler",
+      "name": "No Templates Available Handler",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2660, 500]
+    }
+  ],
+  "connections": {
+    "Enhanced Analyze All Trigger": {
+      "main": [
+        [{ "node": "Enhanced Payload Validator", "type": "main", "index": 0 }]
+      ]
+    },
+    "Enhanced Payload Validator": {
+      "main": [
+        [{ "node": "Document Batch Processor", "type": "main", "index": 0 }]
+      ]
+    },
+    "Document Batch Processor": {
+      "main": [
+        [{ "node": "Document Splitter", "type": "main", "index": 0 }]
+      ]
+    },
+    "Document Splitter": {
+      "main": [
+        [{ "node": "AI Document Classification", "type": "main", "index": 0 }]
+      ]
+    },
+    "AI Document Classification": {
+      "main": [
+        [{ "node": "AI Entity Extraction", "type": "main", "index": 0 }]
+      ]
+    },
+    "AI Entity Extraction": {
+      "main": [
+        [{ "node": "Analysis Result Processor", "type": "main", "index": 0 }]
+      ]
+    },
+    "Analysis Result Processor": {
+      "main": [
+        [{ "node": "Cross-Document Analysis Aggregator", "type": "main", "index": 0 }]
+      ]
+    },
+    "Cross-Document Analysis Aggregator": {
+      "main": [
+        [{ "node": "Enhanced Template Discovery", "type": "main", "index": 0 }]
+      ]
+    },
+    "Enhanced Template Discovery": {
+      "main": [
+        [{ "node": "Template Discovery Processor", "type": "main", "index": 0 }]
+      ]
+    },
+    "Template Discovery Processor": {
+      "main": [
+        [{ "node": "Template Availability Router", "type": "main", "index": 0 }]
+      ]
+    },
+    "Template Availability Router": {
+      "main": [
+        [{ "node": "Semantic Field Mapping Engine", "type": "main", "index": 0 }],
+        [{ "node": "No Templates Available Handler", "type": "main", "index": 0 }]
+      ]
+    },
+    "Semantic Field Mapping Engine": {
+      "main": [
+        [{ "node": "Semantic Mapping Processor", "type": "main", "index": 0 }]
+      ]
+    },
+    "Semantic Mapping Processor": {
+      "main": [
+        [{ "node": "Professional Template Population", "type": "main", "index": 0 }]
+      ]
+    },
+    "Professional Template Population": {
+      "main": [
+        [{ "node": "Population Result Processor", "type": "main", "index": 0 }]
+      ]
+    },
+    "Population Result Processor": {
+      "main": [
+        [{ "node": "AI Quality Validation", "type": "main", "index": 0 }]
+      ]
+    },
+    "AI Quality Validation": {
+      "main": [
+        [{ "node": "Quality Assessment Processor", "type": "main", "index": 0 }]
+      ]
+    },
+    "Quality Assessment Processor": {
+      "main": [
+        [{ "node": "Enhanced Result Aggregator", "type": "main", "index": 0 }]
+      ]
+    },
+    "Enhanced Result Aggregator": {
+      "main": [
+        [{ "node": "Enhanced DealDone Webhook Response", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "2.0.0",
+  "id": "enhanced-analyze-all-workflow",
+  "tags": [
+    {
+      "id": "dealdone",
+      "name": "DealDone"
+    },
+    {
+      "id": "enhanced",
+      "name": "Enhanced"
+    },
+    {
+      "id": "analyze-all",
+      "name": "Analyze All"
+    }
+  ]
+} 

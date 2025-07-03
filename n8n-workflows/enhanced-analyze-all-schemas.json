@@ -1,0 +1,706 @@
+{
+  "workflowSchemas": {
+    "enhancedAnalyzeAll": {
+      "version": "2.0.0",
+      "description": "Data schemas for Enhanced Analyze All workflow",
+      
+      "inputPayload": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["dealName", "documentPaths", "triggerType", "jobId", "timestamp"],
+        "properties": {
+          "dealName": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]+$",
+            "description": "Name of the deal being analyzed"
+          },
+          "documentPaths": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "description": "Absolute path to document file"
+            },
+            "description": "Array of document paths to analyze"
+          },
+          "triggerType": {
+            "type": "string",
+            "enum": ["analyze-all", "batch-upload", "scheduled"],
+            "description": "Type of trigger that initiated the workflow"
+          },
+          "jobId": {
+            "type": "string",
+            "description": "Unique job identifier for tracking"
+          },
+          "timestamp": {
+            "type": "integer",
+            "description": "Unix timestamp in milliseconds"
+          },
+          "priority": {
+            "type": "string",
+            "enum": ["low", "normal", "high", "urgent"],
+            "default": "normal",
+            "description": "Processing priority level"
+          },
+          "options": {
+            "type": "object",
+            "properties": {
+              "formatCurrency": {
+                "type": "boolean",
+                "default": true,
+                "description": "Enable currency formatting"
+              },
+              "preserveFormulas": {
+                "type": "boolean", 
+                "default": true,
+                "description": "Preserve Excel formulas in templates"
+              },
+              "validateBusinessRules": {
+                "type": "boolean",
+                "default": true,
+                "description": "Enable business rule validation"
+              }
+            }
+          }
+        }
+      },
+
+      "documentAnalysis": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "documentPath": {
+            "type": "string",
+            "description": "Path to the analyzed document"
+          },
+          "documentName": {
+            "type": "string",
+            "description": "Name of the document file"
+          },
+          "batchId": {
+            "type": "string",
+            "description": "Unique identifier for this document in the batch"
+          },
+          "classification": {
+            "type": "object",
+            "properties": {
+              "documentType": {
+                "type": "string",
+                "enum": ["financial", "legal", "general", "unknown"],
+                "description": "Classified document type"
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Classification confidence score"
+              },
+              "keywords": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Keywords identified in document"
+              },
+              "processingDecision": {
+                "type": "string",
+                "enum": ["automated", "assisted", "manual"],
+                "description": "Recommended processing approach"
+              }
+            }
+          },
+          "entities": {
+            "type": "object",
+            "properties": {
+              "companyName": {
+                "type": "string",
+                "description": "Extracted company name"
+              },
+              "dealValue": {
+                "type": "string",
+                "description": "Extracted deal value"
+              },
+              "revenue": {
+                "type": "string",
+                "description": "Extracted revenue figure"
+              },
+              "ebitda": {
+                "type": "string",
+                "description": "Extracted EBITDA figure"
+              },
+              "extractedCount": {
+                "type": "integer",
+                "description": "Total number of entities extracted"
+              }
+            }
+          },
+          "processingStatus": {
+            "type": "string",
+            "description": "Current processing status"
+          },
+          "analysisTimestamp": {
+            "type": "integer",
+            "description": "Timestamp when analysis completed"
+          }
+        }
+      },
+
+      "crossDocumentAnalysis": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "documentAnalyses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/documentAnalysis"
+            },
+            "description": "Array of individual document analyses"
+          },
+          "documentTypes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Unique document types found"
+          },
+          "averageConfidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Average confidence across all documents"
+          },
+          "allEntities": {
+            "type": "object",
+            "properties": {
+              "companyNames": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "All company names found across documents"
+              },
+              "dealValues": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "All deal values found across documents"
+              },
+              "revenues": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "All revenue figures found across documents"
+              },
+              "ebitdas": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "All EBITDA figures found across documents"
+              }
+            }
+          },
+          "primaryEntities": {
+            "type": "object",
+            "properties": {
+              "companyName": {
+                "type": "string",
+                "description": "Primary company name (most frequently mentioned)"
+              },
+              "dealValue": {
+                "type": "string",
+                "description": "Primary deal value"
+              },
+              "revenue": {
+                "type": "string",
+                "description": "Primary revenue figure"
+              },
+              "ebitda": {
+                "type": "string",
+                "description": "Primary EBITDA figure"
+              }
+            }
+          }
+        }
+      },
+
+      "templateDiscovery": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "templatesFound": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of templates discovered"
+          },
+          "templates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "templateId": {
+                  "type": "string",
+                  "description": "Unique template identifier"
+                },
+                "templateName": {
+                  "type": "string",
+                  "description": "Human-readable template name"
+                },
+                "relevanceScore": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "description": "Template relevance score"
+                },
+                "fieldCount": {
+                  "type": "integer",
+                  "description": "Number of fields in template"
+                },
+                "category": {
+                  "type": "string",
+                  "description": "Template category"
+                },
+                "priority": {
+                  "type": "string",
+                  "enum": ["low", "normal", "high"],
+                  "description": "Template processing priority"
+                }
+              }
+            }
+          },
+          "bestMatch": {
+            "type": ["object", "null"],
+            "description": "Best matching template or null if none found"
+          },
+          "processingReady": {
+            "type": "boolean",
+            "description": "Whether templates are ready for processing"
+          },
+          "recommendedTemplates": {
+            "type": "array",
+            "description": "Templates with relevance score > 0.7"
+          }
+        }
+      },
+
+      "semanticMapping": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "fieldsDiscovered": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of fields discovered for mapping"
+          },
+          "mappings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "templateField": {
+                  "type": "string",
+                  "description": "Template field name"
+                },
+                "extractedValue": {
+                  "type": "string",
+                  "description": "Raw extracted value"
+                },
+                "confidence": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "description": "Mapping confidence score"
+                },
+                "dataType": {
+                  "type": "string",
+                  "enum": ["text", "number", "currency", "date", "percentage"],
+                  "description": "Data type of the field"
+                },
+                "formattedValue": {
+                  "type": "string",
+                  "description": "Formatted value for template population"
+                },
+                "source": {
+                  "type": "string",
+                  "description": "Source of the extracted value"
+                }
+              }
+            }
+          },
+          "averageConfidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Average confidence across all mappings"
+          },
+          "readyForPopulation": {
+            "type": "boolean",
+            "description": "Whether mappings are ready for template population"
+          },
+          "qualityScore": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Overall mapping quality score"
+          }
+        }
+      },
+
+      "templatePopulation": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "populationSuccess": {
+            "type": "boolean",
+            "description": "Whether template population succeeded"
+          },
+          "templatesPopulated": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of templates successfully populated"
+          },
+          "fieldsPopulated": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Total number of fields populated"
+          },
+          "formulasPreserved": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of formulas preserved"
+          },
+          "currencyFormatted": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of currency fields formatted"
+          },
+          "populatedTemplateIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "IDs of successfully populated templates"
+          },
+          "populationSummary": {
+            "type": "object",
+            "description": "Summary of population process"
+          },
+          "completionPercentage": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Percentage of template fields completed"
+          },
+          "qualityMetrics": {
+            "type": "object",
+            "description": "Quality metrics for populated templates"
+          }
+        }
+      },
+
+      "qualityAssessment": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "overallScore": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Overall quality score"
+          },
+          "finalStatus": {
+            "type": "string",
+            "enum": ["excellent", "good", "acceptable", "needs-review"],
+            "description": "Final quality status"
+          },
+          "validationChecks": {
+            "type": "object",
+            "properties": {
+              "logicalConsistency": {
+                "type": "boolean",
+                "description": "Whether data is logically consistent"
+              },
+              "businessRuleCompliance": {
+                "type": "boolean",
+                "description": "Whether business rules are followed"
+              },
+              "dataFormatting": {
+                "type": "boolean",
+                "description": "Whether data is properly formatted"
+              },
+              "completeness": {
+                "type": "boolean",
+                "description": "Whether all required fields are populated"
+              }
+            }
+          },
+          "qualityMetrics": {
+            "type": "object",
+            "properties": {
+              "classificationQuality": {
+                "type": "object",
+                "properties": {
+                  "confidence": {
+                    "type": "number"
+                  },
+                  "weight": {
+                    "type": "number"
+                  }
+                }
+              },
+              "templateDiscoveryQuality": {
+                "type": "object",
+                "properties": {
+                  "templatesFound": {
+                    "type": "integer"
+                  },
+                  "bestMatchScore": {
+                    "type": "number"
+                  },
+                  "weight": {
+                    "type": "number"
+                  }
+                }
+              },
+              "fieldMappingQuality": {
+                "type": "object",
+                "properties": {
+                  "fieldsExtracted": {
+                    "type": "integer"
+                  },
+                  "averageConfidence": {
+                    "type": "number"
+                  },
+                  "weight": {
+                    "type": "number"
+                  }
+                }
+              },
+              "populationQuality": {
+                "type": "object",
+                "properties": {
+                  "completionPercentage": {
+                    "type": "number"
+                  },
+                  "formulasPreserved": {
+                    "type": "integer"
+                  },
+                  "weight": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          },
+          "recommendations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Quality improvement recommendations"
+          },
+          "criticalIssues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Critical issues requiring attention"
+          }
+        }
+      },
+
+      "finalResults": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["jobId", "dealName", "workflowType", "status"],
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "description": "Unique job identifier"
+          },
+          "dealName": {
+            "type": "string",
+            "description": "Name of the deal analyzed"
+          },
+          "workflowType": {
+            "type": "string",
+            "enum": ["enhanced-analyze-all"],
+            "description": "Type of workflow executed"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["completed", "failed", "partial"],
+            "description": "Final processing status"
+          },
+          "processingTime": {
+            "type": "object",
+            "properties": {
+              "startTime": {
+                "type": "integer",
+                "description": "Processing start timestamp"
+              },
+              "endTime": {
+                "type": "integer",
+                "description": "Processing end timestamp"
+              },
+              "durationMs": {
+                "type": "integer",
+                "description": "Total processing duration in milliseconds"
+              }
+            }
+          },
+          "documentAnalysis": {
+            "type": "object",
+            "properties": {
+              "totalDocuments": {
+                "type": "integer",
+                "description": "Total number of documents processed"
+              },
+              "documentTypes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Types of documents found"
+              },
+              "averageConfidence": {
+                "type": "number",
+                "description": "Average classification confidence"
+              },
+              "processedDocuments": {
+                "type": "array",
+                "description": "Detailed analysis of each document"
+              }
+            }
+          },
+          "entityExtraction": {
+            "type": "object",
+            "properties": {
+              "primaryEntities": {
+                "type": "object",
+                "description": "Primary entities extracted across all documents"
+              },
+              "allEntities": {
+                "type": "object",
+                "description": "All entities found across documents"
+              },
+              "extractionQuality": {
+                "type": "string",
+                "enum": ["low", "medium", "high"],
+                "description": "Overall extraction quality assessment"
+              }
+            }
+          },
+          "templateDiscovery": {
+            "$ref": "#/templateDiscovery"
+          },
+          "semanticMapping": {
+            "$ref": "#/semanticMapping"
+          },
+          "templatePopulation": {
+            "$ref": "#/templatePopulation"
+          },
+          "qualityAssessment": {
+            "$ref": "#/qualityAssessment"
+          },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "overallQuality": {
+                "type": "string",
+                "description": "Overall quality assessment"
+              },
+              "overallScore": {
+                "type": "number",
+                "description": "Overall quality score"
+              },
+              "templatesProcessed": {
+                "type": "integer",
+                "description": "Number of templates processed"
+              },
+              "fieldsExtracted": {
+                "type": "integer",
+                "description": "Total fields extracted"
+              },
+              "populationComplete": {
+                "type": "boolean",
+                "description": "Whether population completed successfully"
+              },
+              "currencyFormatted": {
+                "type": "integer",
+                "description": "Number of currency fields formatted"
+              },
+              "formulasPreserved": {
+                "type": "integer",
+                "description": "Number of formulas preserved"
+              }
+            }
+          },
+          "metadata": {
+            "type": "object",
+            "properties": {
+              "workflowVersion": {
+                "type": "string",
+                "description": "Version of the workflow used"
+              },
+              "processingNode": {
+                "type": "string",
+                "description": "Primary processing node identifier"
+              },
+              "aiProvider": {
+                "type": "string",
+                "description": "AI provider used for processing"
+              },
+              "timestamp": {
+                "type": "integer",
+                "description": "Result generation timestamp"
+              }
+            }
+          }
+        }
+      },
+
+      "errorResponse": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "description": "Job identifier where error occurred"
+          },
+          "errorType": {
+            "type": "string",
+            "enum": ["validation", "processing", "api", "timeout", "system"],
+            "description": "Type of error encountered"
+          },
+          "errorMessage": {
+            "type": "string",
+            "description": "Human-readable error message"
+          },
+          "errorCode": {
+            "type": "string",
+            "description": "Machine-readable error code"
+          },
+          "failedStep": {
+            "type": "string",
+            "description": "Workflow step where error occurred"
+          },
+          "timestamp": {
+            "type": "integer",
+            "description": "Error occurrence timestamp"
+          },
+          "retryable": {
+            "type": "boolean",
+            "description": "Whether the operation can be retried"
+          },
+          "partialResults": {
+            "type": "object",
+            "description": "Any partial results available before failure"
+          }
+        }
+      }
+    }
+  }
+} 
