@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/csv"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -37,6 +38,8 @@ func (tp *TemplatePopulator) PopulateTemplate(templatePath string, mappedData *M
 		return tp.populateCSVTemplate(templatePath, templateData, mappedData, outputPath)
 	case "excel":
 		return tp.populateExcelTemplate(templatePath, templateData, mappedData, outputPath)
+	case "text":
+		return tp.populateTextTemplate(templatePath, templateData, mappedData, outputPath)
 	default:
 		return fmt.Errorf("unsupported template format: %s", templateData.Format)
 	}
@@ -134,6 +137,62 @@ func (tp *TemplatePopulator) updateCSVRecords(records [][]string, templateData *
 	}
 
 	return updated
+}
+
+// populateTextTemplate populates a text template
+func (tp *TemplatePopulator) populateTextTemplate(templatePath string, templateData *TemplateData, mappedData *MappedData, outputPath string) error {
+	// Read the original text content
+	originalContent, ok := templateData.Metadata["originalContent"].(string)
+	if !ok {
+		// Fallback: read from file
+		file, err := os.Open(templatePath)
+		if err != nil {
+			return fmt.Errorf("failed to open template: %w", err)
+		}
+		defer file.Close()
+
+		content, err := io.ReadAll(file)
+		if err != nil {
+			return fmt.Errorf("failed to read template: %w", err)
+		}
+		originalContent = string(content)
+	}
+
+	// Replace placeholders with mapped data
+	populatedContent := originalContent
+
+	// Replace field placeholders with actual values
+	for fieldName, mappedField := range mappedData.Fields {
+		// Look for various placeholder formats
+		placeholderFormats := []string{
+			"[" + fieldName + "]",
+			"{" + fieldName + "}",
+			"{{" + fieldName + "}}",
+			"[" + strings.ToLower(fieldName) + "]",
+			"{" + strings.ToLower(fieldName) + "}",
+			"{{" + strings.ToLower(fieldName) + "}}",
+		}
+
+		valueStr := tp.formatValue(mappedField.Value)
+
+		for _, placeholder := range placeholderFormats {
+			populatedContent = strings.ReplaceAll(populatedContent, placeholder, valueStr)
+		}
+	}
+
+	// Write to output file
+	outputFile, err := os.Create(outputPath)
+	if err != nil {
+		return fmt.Errorf("failed to create output file: %w", err)
+	}
+	defer outputFile.Close()
+
+	_, err = outputFile.WriteString(populatedContent)
+	if err != nil {
+		return fmt.Errorf("failed to write populated content: %w", err)
+	}
+
+	return nil
 }
 
 // populateExcelTemplate populates an Excel template while preserving formulas
@@ -442,6 +501,8 @@ func (tp *TemplatePopulator) ValidatePopulatedTemplate(populatedPath string, ori
 		return tp.validateExcelFormulas(populatedPath, originalFormulas)
 	case ".csv":
 		return tp.validateCSVFormulas(populatedPath, originalFormulas)
+	case ".txt":
+		return tp.validateTextTemplate(populatedPath, originalFormulas)
 	default:
 		return fmt.Errorf("unsupported format for validation: %s", ext)
 	}
@@ -518,6 +579,23 @@ func (tp *TemplatePopulator) validateCSVFormulas(filePath string, originalFormul
 	if len(missingFormulas) > 0 {
 		return fmt.Errorf("missing formulas in cells: %s", strings.Join(missingFormulas, ", "))
 	}
+
+	return nil
+}
+
+// validateTextTemplate validates a text template (text templates don't have formulas to validate)
+func (tp *TemplatePopulator) validateTextTemplate(filePath string, originalFormulas *FormulaPreservation) error {
+	// Text templates don't have formulas, so validation just checks if file exists and is readable
+	if _, err := os.Stat(filePath); err != nil {
+		return fmt.Errorf("populated text template not found: %w", err)
+	}
+
+	// Check if file is readable
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("cannot read populated text template: %w", err)
+	}
+	defer file.Close()
 
 	return nil
 }

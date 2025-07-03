@@ -11,7 +11,7 @@ import (
 type Template struct {
 	Name     string `json:"name"`
 	Path     string `json:"path"`
-	Type     string `json:"type"` // xlsx, xls, docx, pptx
+	Type     string `json:"type"` // xlsx, xls, docx, pptx, csv, txt, pdf
 	Size     int64  `json:"size"`
 	Modified string `json:"modified"`
 }
@@ -30,7 +30,7 @@ func NewTemplateManager(configService *ConfigService) *TemplateManager {
 
 // GetSupportedExtensions returns the list of supported template file extensions
 func (tm *TemplateManager) GetSupportedExtensions() []string {
-	return []string{".xlsx", ".xls", ".docx", ".pptx"}
+	return []string{".xlsx", ".xls", ".docx", ".pptx", ".csv", ".txt", ".pdf"}
 }
 
 // IsTemplateFile checks if a file is a valid template based on extension
@@ -144,13 +144,11 @@ func (tm *TemplateManager) CopyTemplateToAnalysis(templatePath, dealName string)
 	templateName := filepath.Base(templatePath)
 	destPath := filepath.Join(analysisPath, templateName)
 
-	// Check if file already exists
+	// Check if file already exists - if so, skip copying to avoid duplicates
 	if _, err := os.Stat(destPath); err == nil {
-		// Add timestamp to filename to avoid overwriting
-		ext := filepath.Ext(templateName)
-		base := strings.TrimSuffix(templateName, ext)
-		timestamp := fmt.Sprintf("_%d", os.Getpid())
-		destPath = filepath.Join(analysisPath, base+timestamp+ext)
+		// File already exists, return the existing path
+		fmt.Printf("DEBUG: Template %s already exists in analysis folder, skipping copy\n", templateName)
+		return destPath, nil
 	}
 
 	// Copy file
@@ -170,6 +168,7 @@ func (tm *TemplateManager) CopyTemplateToAnalysis(templatePath, dealName string)
 		return "", fmt.Errorf("failed to copy template: %w", err)
 	}
 
+	fmt.Printf("DEBUG: Successfully copied template %s to analysis folder\n", templateName)
 	return destPath, nil
 }
 

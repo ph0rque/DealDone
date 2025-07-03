@@ -26,7 +26,7 @@ func NewTemplateParser(templatesPath string) *TemplateParser {
 
 // TemplateData represents parsed template data
 type TemplateData struct {
-	Format   string                 `json:"format"` // "excel" or "csv"
+	Format   string                 `json:"format"` // "excel", "csv", or "text"
 	Headers  []string               `json:"headers"`
 	Data     [][]string             `json:"data"`
 	Formulas map[string]string      `json:"formulas"` // Cell -> Formula mapping
@@ -58,9 +58,85 @@ func (tp *TemplateParser) ParseTemplate(templatePath string) (*TemplateData, err
 		return tp.parseCSVTemplate(templatePath)
 	case ".xlsx", ".xls":
 		return tp.parseExcelTemplate(templatePath)
+	case ".txt":
+		return tp.parseTextTemplate(templatePath)
 	default:
 		return nil, fmt.Errorf("unsupported template format: %s", ext)
 	}
+}
+
+// parseTextTemplate parses a text template file
+func (tp *TemplateParser) parseTextTemplate(filePath string) (*TemplateData, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open text template: %w", err)
+	}
+	defer file.Close()
+
+	// Read the entire file content
+	content, err := io.ReadAll(file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read text template: %w", err)
+	}
+
+	// Split content into lines
+	lines := strings.Split(string(content), "\n")
+
+	// For text templates, we treat each line as a potential field placeholder
+	// Look for patterns like [Field Name] or {Field Name} or {{Field Name}}
+	headers := []string{}
+	data := [][]string{}
+
+	// Extract field placeholders from content
+	for _, line := range lines {
+		// Look for common placeholder patterns
+		if strings.Contains(line, "[") && strings.Contains(line, "]") {
+			// Extract text between brackets
+			start := strings.Index(line, "[")
+			end := strings.Index(line, "]")
+			if start >= 0 && end > start {
+				placeholder := strings.TrimSpace(line[start+1 : end])
+				if placeholder != "" && !tp.containsString(headers, placeholder) {
+					headers = append(headers, placeholder)
+				}
+			}
+		}
+	}
+
+	// If no placeholders found, create basic structure
+	if len(headers) == 0 {
+		headers = []string{"Content"}
+		data = append(data, []string{string(content)})
+	} else {
+		// Create empty data row for placeholders
+		emptyRow := make([]string, len(headers))
+		for i := range emptyRow {
+			emptyRow[i] = ""
+		}
+		data = append(data, emptyRow)
+	}
+
+	return &TemplateData{
+		Format:   "text",
+		Headers:  headers,
+		Data:     data,
+		Formulas: make(map[string]string), // Text templates don't have formulas
+		Sheets:   []SheetData{},
+		Metadata: map[string]interface{}{
+			"originalContent": string(content),
+			"lineCount":       len(lines),
+		},
+	}, nil
+}
+
+// containsString checks if a string slice contains a specific string
+func (tp *TemplateParser) containsString(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }
 
 // parseCSVTemplate parses a CSV template file
