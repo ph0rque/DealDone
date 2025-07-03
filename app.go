@@ -2360,9 +2360,10 @@ func (a *App) TestN8nConnection() (map[string]interface{}, error) {
 	duration := time.Since(start)
 
 	result := map[string]interface{}{
-		"timestamp":    time.Now().UnixMilli(),
-		"responseTime": duration.Milliseconds(),
-		"baseURL":      a.n8nIntegration.config.BaseURL,
+		"timestamp":         time.Now().UnixMilli(),
+		"responseTime":      duration.Milliseconds(),
+		"baseURL":           a.n8nIntegration.config.BaseURL,
+		"workflowEndpoints": a.n8nIntegration.config.WorkflowEndpoints,
 	}
 
 	if err != nil {

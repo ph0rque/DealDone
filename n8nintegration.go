@@ -117,7 +117,7 @@ func NewN8nIntegrationService(config *N8nConfig, jobTracker *JobTracker, webhook
 	// Initialize workflow endpoints if not provided
 	if config.WorkflowEndpoints == nil {
 		config.WorkflowEndpoints = map[string]string{
-			"document-analysis": "/webhook/dealdone-document-analysis",
+			"document-analysis": "/webhook/enhanced-analyze-all-v3",
 			"error-handling":    "/webhook/dealdone-error-handling",
 			"user-corrections":  "/webhook/dealdone-user-corrections",
 			"cleanup":           "/webhook/dealdone-cleanup",
