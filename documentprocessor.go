@@ -227,7 +227,22 @@ func (dp *DocumentProcessor) detectDocumentTypeByRules(fileName, ext string) Doc
 		}
 	}
 
-	// Enhanced Financial document patterns with more variations
+	// General document patterns (including CIM which is marketing/overview)
+	generalPatterns := []string{
+		"cim", "confidential_information", "confidential-information",
+		"teaser", "pitch", "deck", "overview", "summary",
+		"presentation", "marketing", "brochure", "profile",
+		"company_profile", "company-profile", "executive_summary", "executive-summary",
+		"management_presentation", "management-presentation",
+	}
+
+	for _, pattern := range generalPatterns {
+		if strings.Contains(lowerName, pattern) {
+			return DocTypeGeneral
+		}
+	}
+
+	// Enhanced Financial document patterns (excluding CIM and marketing docs)
 	financialPatterns := []string{
 		"financial", "financials", "finance", "finances",
 		"p&l", "pnl", "pandl", "profit_loss", "profit_and_loss", "profit-loss",
@@ -241,8 +256,7 @@ func (dp *DocumentProcessor) detectDocumentTypeByRules(fileName, ext string) Doc
 		"valuation", "valuations", "financial_model", "financial-model", "model", "models",
 		"metrics", "metric", "kpi", "kpis", "performance", "performances",
 		"annual_report", "annual-report", "quarterly", "monthly",
-		"cim", "confidential_information", "confidential-information",
-		"teaser", "pitch", "deck", "investor", "investment",
+		"investor", "investment",
 		"due_diligence", "due-diligence", "dd", "diligence",
 	}
 

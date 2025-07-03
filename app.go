@@ -4556,6 +4556,39 @@ func (a *App) AnalyzeDocumentsAndPopulateTemplates(dealName string, documentPath
 
 	// TASK 1.2.3: Use n8n workflow instead of direct processing
 	if a.n8nIntegration != nil {
+		// First, analyze documents to determine types and copy templates
+		fmt.Printf("Pre-analyzing documents to determine types for template copying...\n")
+		documentTypes := make(map[string]string)
+		for _, docPath := range documentPaths {
+			docInfo, err := a.documentProcessor.ProcessDocument(docPath)
+			if err != nil {
+				result.Errors = append(result.Errors, fmt.Sprintf("Failed to process %s: %v", docPath, err))
+				continue
+			}
+			documentTypes[docPath] = string(docInfo.Type)
+			result.ProcessedDocuments = append(result.ProcessedDocuments, docPath)
+		}
+
+		// Determine unique document types for template copying
+		uniqueTypes := make([]string, 0)
+		typeMap := make(map[string]bool)
+		for _, docType := range documentTypes {
+			if !typeMap[docType] {
+				uniqueTypes = append(uniqueTypes, docType)
+				typeMap[docType] = true
+			}
+		}
+
+		// Copy relevant templates to analysis folder BEFORE n8n processing
+		fmt.Printf("Copying templates for document types: %v\n", uniqueTypes)
+		copiedTemplates, err := a.CopyTemplatesToAnalysis(dealName, uniqueTypes)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Failed to copy templates: %v", err))
+		} else {
+			result.CopiedTemplates = copiedTemplates
+			fmt.Printf("Successfully copied %d templates to analysis folder\n", len(copiedTemplates))
+		}
+
 		// Generate job ID for tracking
 		jobID := fmt.Sprintf("enhanced_analyze_%d_%s", time.Now().UnixMilli(), dealName)
 
