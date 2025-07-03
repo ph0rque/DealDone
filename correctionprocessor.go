@@ -175,6 +175,20 @@ type SimpleTokenizer struct {
 func NewCorrectionProcessor(config CorrectionDetectionConfig, logger Logger) *CorrectionProcessor {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Validate and set default values for config
+	if config.MonitoringInterval <= 0 {
+		config.MonitoringInterval = 1 * time.Minute // Default to 1 minute
+	}
+	if config.MaxCorrectionHistory <= 0 {
+		config.MaxCorrectionHistory = 1000
+	}
+	if config.MinLearningWeight <= 0 {
+		config.MinLearningWeight = 0.1
+	}
+	if config.StoragePath == "" {
+		config.StoragePath = "/tmp/dealdone_corrections"
+	}
+
 	// Create RAG config
 	ragConfig := RAGConfig{
 		EmbeddingDimensions:      128,
