@@ -163,20 +163,22 @@ func (tp *TemplatePopulator) populateTextTemplate(templatePath string, templateD
 
 	// Replace field placeholders with actual values
 	for fieldName, mappedField := range mappedData.Fields {
-		// Look for various placeholder formats
-		placeholderFormats := []string{
-			"[" + fieldName + "]",
-			"{" + fieldName + "}",
-			"{{" + fieldName + "}}",
-			"[" + strings.ToLower(fieldName) + "]",
-			"{" + strings.ToLower(fieldName) + "}",
-			"{{" + strings.ToLower(fieldName) + "}}",
-		}
-
 		valueStr := tp.formatValue(mappedField.Value)
 
-		for _, placeholder := range placeholderFormats {
-			populatedContent = strings.ReplaceAll(populatedContent, placeholder, valueStr)
+		// Create mapping from metadata field names to likely placeholders
+		placeholderMappings := tp.getPlaceholderMappings(fieldName)
+
+		// Try all possible placeholder formats and mappings
+		for _, placeholderName := range placeholderMappings {
+			placeholderFormats := []string{
+				"[" + placeholderName + "]",
+				"{" + placeholderName + "}",
+				"{{" + placeholderName + "}}",
+			}
+
+			for _, placeholder := range placeholderFormats {
+				populatedContent = strings.ReplaceAll(populatedContent, placeholder, valueStr)
+			}
 		}
 	}
 
@@ -598,4 +600,46 @@ func (tp *TemplatePopulator) validateTextTemplate(filePath string, originalFormu
 	defer file.Close()
 
 	return nil
+}
+
+// getPlaceholderMappings maps metadata field names to likely placeholders in the template
+func (tp *TemplatePopulator) getPlaceholderMappings(fieldName string) []string {
+	fieldLower := strings.ToLower(fieldName)
+
+	// Common mappings from metadata field names to template placeholders
+	mappings := map[string][]string{
+		"deal name":        {"To be filled", "Deal Name", "deal name"},
+		"target company":   {"To be filled", "Target Company", "Company Name", "Name", "target company"},
+		"company name":     {"Name", "Company Name", "To be filled", "company name"},
+		"deal value":       {"Amount", "Deal Value", "Value", "Price", "deal value"},
+		"purchase price":   {"Amount", "Purchase Price", "Price", "Value", "purchase price"},
+		"enterprise value": {"Amount", "Enterprise Value", "EV", "Value", "enterprise value"},
+		"revenue":          {"Amount", "Revenue", "Sales", "Income", "revenue"},
+		"ebitda":           {"Amount", "EBITDA", "Earnings", "ebitda"},
+		"net income":       {"Amount", "Net Income", "Profit", "net income"},
+		"date":             {"Date", "Transaction Date", "Deal Date", "date"},
+		"industry":         {"Industry", "Sector", "Business", "industry"},
+		"founded":          {"Year", "Founded", "Establishment", "founded"},
+		"employees":        {"Number", "Employees", "Headcount", "Staff", "employees"},
+		"headquarters":     {"Location", "Headquarters", "HQ", "Office", "headquarters"},
+		"website":          {"URL", "Website", "Web", "website"},
+		"deal type":        {"Deal Type", "Transaction Type", "Type", "deal type"},
+	}
+
+	// Get specific mappings for this field
+	if placeholders, exists := mappings[fieldLower]; exists {
+		return placeholders
+	}
+
+	// Default mappings - try the field name itself and common generic placeholders
+	return []string{
+		fieldName,                  // Exact match
+		strings.Title(fieldName),   // Title case
+		strings.ToLower(fieldName), // Lower case
+		"To be filled",             // Generic placeholder
+		"Amount",                   // For currency fields
+		"Name",                     // For name fields
+		"Date",                     // For date fields
+		"Number",                   // For numeric fields
+	}
 }

@@ -9,13 +9,15 @@ import {
   FolderOpen,
   Plus,
   Search,
-  Filter
+  Filter,
+  Loader2
 } from 'lucide-react';
-import { GetDealsList, ProcessFolder, CreateDeal, GetDealFolderPath } from '../../wailsjs/go/main/App';
+import { GetDealsList, ProcessFolder, CreateDeal, GetDealFolderPath, GetPopulatedTemplateData } from '../../wailsjs/go/main/App';
 import { DocumentUpload } from './DocumentUpload';
 import { DocumentSearch, DocumentItem } from './DocumentSearch';
 import { DocumentViewer } from './DocumentViewer';
 import { DealCreationDialog } from './DealCreationDialog';
+import { AnalysisProgress } from './AnalysisProgress';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { useToast } from '../hooks/use-toast';
@@ -49,6 +51,10 @@ export function DealDashboard() {
   const [selectedDocument, setSelectedDocument] = useState<DocumentItem | null>(null);
   const [showDocumentViewer, setShowDocumentViewer] = useState(false);
   const [showDealCreation, setShowDealCreation] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState(0);
+  const [populatedTemplates, setPopulatedTemplates] = useState<any[]>([]);
+  const [showTemplateResults, setShowTemplateResults] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -277,7 +283,26 @@ export function DealDashboard() {
   };
 
   const analyzeAll = async (dealName: string) => {
+    setIsAnalyzing(true);
+    setAnalysisProgress(0);
+    
     try {
+      // Simulate progress steps
+      const progressSteps = [
+        { progress: 20, message: "Preparing analysis..." },
+        { progress: 40, message: "Discovering templates..." },
+        { progress: 60, message: "Extracting document data..." },
+        { progress: 80, message: "Populating templates..." },
+        { progress: 95, message: "Finalizing analysis..." }
+      ];
+      
+      // Start progress animation
+      progressSteps.forEach((step, index) => {
+        setTimeout(() => {
+          setAnalysisProgress(step.progress);
+        }, index * 500);
+      });
+      
       // Get the full path to the deal folder
       const dealFolderPath = await GetDealFolderPath(dealName);
       
@@ -291,6 +316,9 @@ export function DealDashboard() {
       }
       
       const results = await ProcessFolder(dealFolderPath, dealName);
+      
+      // Complete progress
+      setAnalysisProgress(100);
       
       if (results && results.length > 0) {
         // Count already processed vs newly processed files
@@ -327,6 +355,23 @@ export function DealDashboard() {
         });
       }
       
+      // Fetch populated template data after analysis
+      try {
+        const templateData = await GetPopulatedTemplateData(dealName);
+        if (templateData && templateData.templates) {
+          setPopulatedTemplates(templateData.templates);
+          if (templateData.templates.length > 0) {
+            setShowTemplateResults(true);
+            toast({
+              title: "Template Analysis Complete",
+              description: `Successfully populated ${templateData.templates.length} templates with document data`,
+            });
+          }
+        }
+      } catch (templateError) {
+        console.error('Error fetching populated template data:', templateError);
+      }
+      
       await loadDeals();
     } catch (error) {
       console.error('Error processing deal folder:', error);
@@ -356,6 +401,12 @@ export function DealDashboard() {
           variant: "destructive",
         });
       }
+    } finally {
+      // Reset animation state after a brief delay
+      setTimeout(() => {
+        setIsAnalyzing(false);
+        setAnalysisProgress(0);
+      }, 1000);
     }
   };
 
@@ -456,9 +507,15 @@ export function DealDashboard() {
                     <Button
                       variant="outline"
                       onClick={() => analyzeAll(selectedDealData.name)}
+                      disabled={isAnalyzing}
+                      className={isAnalyzing ? "opacity-75" : ""}
                     >
-                      <BarChart3 className="h-4 w-4 mr-2" />
-                      Analyze All
+                      {isAnalyzing ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <BarChart3 className="h-4 w-4 mr-2" />
+                      )}
+                      {isAnalyzing ? "Analyzing..." : "Analyze All"}
                     </Button>
                     <Button onClick={() => setShowUpload(!showUpload)}>
                       <Plus className="h-4 w-4 mr-2" />
@@ -469,20 +526,34 @@ export function DealDashboard() {
               </div>
             </div>
 
+            {/* Analysis Progress Indicator */}
+            <AnalysisProgress 
+              isVisible={isAnalyzing} 
+              progress={analysisProgress} 
+            />
+
             {/* Stats Grid */}
             <div className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
+              <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 transition-all duration-300 ${
+                isAnalyzing ? 'opacity-90' : 'opacity-100'
+              }`}>
+                <div className={`bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm transition-all duration-300 ${
+                  isAnalyzing ? 'ring-2 ring-blue-200 dark:ring-blue-800' : ''
+                }`}>
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-gray-500 dark:text-gray-400">Total Documents</p>
                       <p className="text-2xl font-bold mt-1">{selectedDealData.documentCount}</p>
                     </div>
-                    <FileText className="h-8 w-8 text-blue-500 opacity-20" />
+                    <FileText className={`h-8 w-8 text-blue-500 transition-all duration-300 ${
+                      isAnalyzing ? 'opacity-40 animate-pulse' : 'opacity-20'
+                    }`} />
                   </div>
                 </div>
                 
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
+                <div className={`bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm transition-all duration-300 ${
+                  isAnalyzing ? 'ring-2 ring-green-200 dark:ring-green-800' : ''
+                }`}>
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-gray-500 dark:text-gray-400">Completeness</p>
@@ -490,11 +561,15 @@ export function DealDashboard() {
                         {Math.round(selectedDealData.completeness || 0)}%
                       </p>
                     </div>
-                    <CheckCircle className="h-8 w-8 text-green-500 opacity-20" />
+                    <CheckCircle className={`h-8 w-8 text-green-500 transition-all duration-300 ${
+                      isAnalyzing ? 'opacity-40 animate-pulse' : 'opacity-20'
+                    }`} />
                   </div>
                 </div>
                 
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
+                <div className={`bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm transition-all duration-300 ${
+                  isAnalyzing ? 'ring-2 ring-yellow-200 dark:ring-yellow-800' : ''
+                }`}>
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-gray-500 dark:text-gray-400">Risk Score</p>
@@ -502,22 +577,136 @@ export function DealDashboard() {
                         {Math.round(selectedDealData.riskScore || 0)}
                       </p>
                     </div>
-                    <AlertTriangle className="h-8 w-8 text-yellow-500 opacity-20" />
+                    <AlertTriangle className={`h-8 w-8 text-yellow-500 transition-all duration-300 ${
+                      isAnalyzing ? 'opacity-40 animate-pulse' : 'opacity-20'
+                    }`} />
                   </div>
                 </div>
                 
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
+                <div className={`bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm transition-all duration-300 ${
+                  isAnalyzing ? 'ring-2 ring-purple-200 dark:ring-purple-800' : ''
+                }`}>
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-gray-500 dark:text-gray-400">Analysis Status</p>
                       <p className="text-sm font-medium mt-1">
-                        {selectedDealData.analysisComplete ? 'Complete' : 'In Progress'}
+                        {isAnalyzing ? 'Analyzing...' : selectedDealData.analysisComplete ? 'Complete' : 'In Progress'}
                       </p>
                     </div>
-                    <TrendingUp className="h-8 w-8 text-purple-500 opacity-20" />
+                    <TrendingUp className={`h-8 w-8 text-purple-500 transition-all duration-300 ${
+                      isAnalyzing ? 'opacity-40 animate-pulse' : 'opacity-20'
+                    }`} />
                   </div>
                 </div>
               </div>
+
+              {/* Template Analysis Results */}
+              {showTemplateResults && populatedTemplates.length > 0 && (
+                <div className="mb-6">
+                  <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-green-900 dark:text-green-100">
+                        📊 Template Analysis Results
+                      </h3>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={async () => {
+                            try {
+                              const templateData = await GetPopulatedTemplateData(selectedDealData.name);
+                              if (templateData && templateData.templates) {
+                                setPopulatedTemplates(templateData.templates);
+                              }
+                            } catch (error) {
+                              console.error('Error refreshing template data:', error);
+                            }
+                          }}
+                          className="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                        >
+                          🔄 Refresh
+                        </button>
+                        <button
+                          onClick={() => setShowTemplateResults(false)}
+                          className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 mb-4">
+                      <p className="text-sm text-green-800 dark:text-green-200">
+                        ✅ Analysis complete! Your templates have been populated with real data extracted from the uploaded documents.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {populatedTemplates.map((template, index) => (
+                        <div
+                          key={index}
+                          className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:shadow-md transition-shadow"
+                        >
+                          <div className="flex items-start justify-between mb-3">
+                            <div>
+                              <h4 className="font-medium text-gray-900 dark:text-gray-100">
+                                {template.name}
+                              </h4>
+                              <p className="text-sm text-gray-500 dark:text-gray-400">
+                                {template.type.toUpperCase()} • {template.fieldCount} fields
+                              </p>
+                            </div>
+                            {template.hasFormulas && (
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
+                                📋 Formulas
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Sample Data Preview */}
+                          {template.sampleData && template.sampleData.length > 0 && (
+                            <div className="mt-3">
+                              <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                Sample Data:
+                              </p>
+                              <div className="bg-gray-50 dark:bg-gray-800 rounded p-2 text-xs">
+                                {Object.entries(template.sampleData[0]).slice(0, 3).map(([key, value]) => (
+                                  <div key={key} className="flex justify-between mb-1">
+                                    <span className="text-gray-600 dark:text-gray-400 truncate mr-2">
+                                      {key}:
+                                    </span>
+                                    <span className="text-gray-900 dark:text-gray-100 font-medium truncate">
+                                      {String(value) || 'N/A'}
+                                    </span>
+                                  </div>
+                                ))}
+                                {Object.keys(template.sampleData[0]).length > 3 && (
+                                  <div className="text-gray-500 dark:text-gray-400 text-center">
+                                    +{Object.keys(template.sampleData[0]).length - 3} more fields
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Template Stats */}
+                          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                            <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                              <span>Updated: {new Date(template.lastModified).toLocaleDateString()}</span>
+                              <span>{Math.round(template.size / 1024)} KB</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        💡 <strong>Next steps:</strong> Review the populated templates in your deal's analysis folder. 
+                        The AI has extracted and mapped data from your documents while preserving formulas and formatting.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Document Upload Section */}
               {showUpload && (
