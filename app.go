@@ -4417,31 +4417,140 @@ func (a *App) CopyTemplatesToAnalysis(dealName string, documentTypes []string) (
 		return nil, fmt.Errorf("failed to discover templates: %w", err)
 	}
 
-	// Filter templates by document types
+	fmt.Printf("CopyTemplatesToAnalysis: Found %d templates, document types: %v\n", len(templates), documentTypes)
+
+	// Create a map for faster lookup and more flexible matching
+	docTypeMap := make(map[string]bool)
+	for _, docType := range documentTypes {
+		docTypeMap[strings.ToLower(docType)] = true
+	}
+
+	// Track which templates we've copied to avoid duplicates
+	copiedPaths := make(map[string]bool)
+
+	// First pass: Try exact category matching
 	for _, template := range templates {
 		if template.Metadata == nil {
+			fmt.Printf("Template %s has no metadata, skipping category check\n", template.Name)
 			continue
 		}
 
-		// Check if template category matches any document type
+		templateCategory := strings.ToLower(template.Metadata.Category)
+		fmt.Printf("Checking template %s with category '%s'\n", template.Name, templateCategory)
+
+		// Check if template category matches any document type (case-insensitive)
 		shouldCopy := false
-		for _, docType := range documentTypes {
-			if strings.EqualFold(template.Metadata.Category, docType) {
+		for docType := range docTypeMap {
+			if templateCategory == docType {
 				shouldCopy = true
+				fmt.Printf("Exact match: template category '%s' matches document type '%s'\n", templateCategory, docType)
 				break
 			}
 		}
 
-		if shouldCopy {
+		if shouldCopy && !copiedPaths[template.Path] {
 			copiedPath, err := a.templateManager.CopyTemplateToAnalysis(template.Path, dealName)
 			if err != nil {
 				fmt.Printf("Warning: Failed to copy template %s: %v\n", template.Name, err)
 				continue
 			}
 			copiedTemplates = append(copiedTemplates, copiedPath)
+			copiedPaths[template.Path] = true
+			fmt.Printf("Copied template %s to %s\n", template.Name, copiedPath)
 		}
 	}
 
+	// Second pass: Try partial matching for better coverage
+	for _, template := range templates {
+		if copiedPaths[template.Path] {
+			continue // Already copied
+		}
+
+		if template.Metadata == nil {
+			continue
+		}
+
+		templateCategory := strings.ToLower(template.Metadata.Category)
+		shouldCopy := false
+
+		// Check for partial matches
+		for docType := range docTypeMap {
+			if strings.Contains(templateCategory, docType) || strings.Contains(docType, templateCategory) {
+				shouldCopy = true
+				fmt.Printf("Partial match: template category '%s' partially matches document type '%s'\n", templateCategory, docType)
+				break
+			}
+		}
+
+		// Also check template name for type hints
+		templateName := strings.ToLower(template.Name)
+		if !shouldCopy {
+			for docType := range docTypeMap {
+				if strings.Contains(templateName, docType) {
+					shouldCopy = true
+					fmt.Printf("Name match: template name '%s' contains document type '%s'\n", templateName, docType)
+					break
+				}
+			}
+		}
+
+		if shouldCopy && !copiedPaths[template.Path] {
+			copiedPath, err := a.templateManager.CopyTemplateToAnalysis(template.Path, dealName)
+			if err != nil {
+				fmt.Printf("Warning: Failed to copy template %s: %v\n", template.Name, err)
+				continue
+			}
+			copiedTemplates = append(copiedTemplates, copiedPath)
+			copiedPaths[template.Path] = true
+			fmt.Printf("Copied template %s to %s (partial match)\n", template.Name, copiedPath)
+		}
+	}
+
+	// Third pass: If no templates copied yet, copy some general templates as fallback
+	if len(copiedTemplates) == 0 {
+		fmt.Printf("No templates matched, copying general templates as fallback\n")
+		maxFallback := 3 // Limit fallback templates
+		copied := 0
+
+		for _, template := range templates {
+			if copied >= maxFallback {
+				break
+			}
+
+			if copiedPaths[template.Path] {
+				continue
+			}
+
+			// Copy any template that looks general or financial
+			templateName := strings.ToLower(template.Name)
+			templateCategory := ""
+			if template.Metadata != nil {
+				templateCategory = strings.ToLower(template.Metadata.Category)
+			}
+
+			isGeneral := strings.Contains(templateName, "general") ||
+				strings.Contains(templateName, "template") ||
+				strings.Contains(templateCategory, "general") ||
+				strings.Contains(templateName, "financial") ||
+				strings.Contains(templateCategory, "financial") ||
+				strings.Contains(templateName, "deal") ||
+				strings.Contains(templateName, "analysis")
+
+			if isGeneral {
+				copiedPath, err := a.templateManager.CopyTemplateToAnalysis(template.Path, dealName)
+				if err != nil {
+					fmt.Printf("Warning: Failed to copy fallback template %s: %v\n", template.Name, err)
+					continue
+				}
+				copiedTemplates = append(copiedTemplates, copiedPath)
+				copiedPaths[template.Path] = true
+				fmt.Printf("Copied fallback template %s to %s\n", template.Name, copiedPath)
+				copied++
+			}
+		}
+	}
+
+	fmt.Printf("CopyTemplatesToAnalysis completed: copied %d templates\n", len(copiedTemplates))
 	return copiedTemplates, nil
 }
 

@@ -212,18 +212,23 @@ func (dp *DocumentProcessor) detectDocumentTypeByRules(fileName, ext string) Doc
 		}
 	}
 
-	// Financial document patterns
+	// Enhanced Financial document patterns with more variations
 	financialPatterns := []string{
-		"financial", "finance", "p&l", "pnl", "pandl",
-		"profit_loss", "profit_and_loss", "profit-loss",
-		"balance_sheet", "balance-sheet", "income_statement",
-		"income-statement", "cash_flow", "cash-flow",
-		"cashflow", "revenue", "ebitda", "earnings",
-		"budget", "forecast", "projection",
-		"tax", "audit", "accounting",
-		"bank_statement", "bank-statement",
-		"valuation", "financial_model", "model",
-		"metrics", "kpi", "performance",
+		"financial", "financials", "finance", "finances",
+		"p&l", "pnl", "pandl", "profit_loss", "profit_and_loss", "profit-loss",
+		"balance_sheet", "balance-sheet", "balance", "sheet",
+		"income_statement", "income-statement", "income",
+		"cash_flow", "cash-flow", "cashflow", "cash",
+		"revenue", "revenues", "ebitda", "earnings", "earning",
+		"budget", "budgets", "forecast", "forecasts", "projection", "projections",
+		"tax", "taxes", "audit", "audits", "accounting", "accounts",
+		"bank_statement", "bank-statement", "bank", "statement",
+		"valuation", "valuations", "financial_model", "financial-model", "model", "models",
+		"metrics", "metric", "kpi", "kpis", "performance", "performances",
+		"annual_report", "annual-report", "quarterly", "monthly",
+		"cim", "confidential_information", "confidential-information",
+		"teaser", "pitch", "deck", "investor", "investment",
+		"due_diligence", "due-diligence", "dd", "diligence",
 	}
 
 	for _, pattern := range financialPatterns {
