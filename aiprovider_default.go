@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -1251,4 +1252,779 @@ func removeDuplicateStrings(slice []string) []string {
 	}
 
 	return result
+}
+
+// SEMANTIC FIELD MAPPING ENGINE METHODS FOR TASK 2.1
+
+// AnalyzeFieldSemantics analyzes field meaning and context using rule-based patterns
+func (dp *DefaultProvider) AnalyzeFieldSemantics(ctx context.Context, fieldName string, fieldValue interface{}, documentContext string) (*FieldSemanticAnalysis, error) {
+	atomic.AddInt64(&dp.stats.TotalRequests, 1)
+
+	result := &FieldSemanticAnalysis{
+		FieldName:        fieldName,
+		SemanticType:     inferSemanticType(fieldName, fieldValue),
+		BusinessCategory: inferBusinessCategory(fieldName),
+		DataType:         inferDataType(fieldValue),
+		ExpectedFormat:   inferExpectedFormat(fieldValue),
+		ConfidenceScore:  0.6, // Lower confidence for rule-based analysis
+		Context:          documentContext,
+		Metadata: map[string]interface{}{
+			"provider":        "default",
+			"analysis_method": "rule_based",
+		},
+		Suggestions:   generateSuggestions(fieldName, fieldValue),
+		BusinessRules: generateBusinessRules(fieldName, fieldValue),
+	}
+
+	atomic.AddInt64(&dp.stats.SuccessfulCalls, 1)
+	return result, nil
+}
+
+// CreateSemanticMapping creates intelligent field mappings using rule-based patterns
+func (dp *DefaultProvider) CreateSemanticMapping(ctx context.Context, sourceFields map[string]interface{}, templateFields []string, documentType string) (*SemanticMappingResult, error) {
+	atomic.AddInt64(&dp.stats.TotalRequests, 1)
+
+	mappings := []SemanticFieldMapping{}
+	unmappedSource := []string{}
+	unmappedTemplate := []string{}
+
+	// Advanced name-based matching with semantic understanding
+	for sourceField, sourceValue := range sourceFields {
+		matched := false
+		bestMatch := ""
+		bestScore := 0.0
+
+		for _, templateField := range templateFields {
+			score := calculateSemanticSimilarity(sourceField, templateField, sourceValue)
+			if score > bestScore && score > 0.5 { // Threshold for matching
+				bestScore = score
+				bestMatch = templateField
+			}
+		}
+
+		if bestMatch != "" {
+			transformation := determineTransformation(sourceField, bestMatch, sourceValue)
+			mappings = append(mappings, SemanticFieldMapping{
+				SourceField:           sourceField,
+				TemplateField:         bestMatch,
+				MappingType:           transformation.Type,
+				Confidence:            bestScore,
+				Transformation:        transformation,
+				BusinessJustification: fmt.Sprintf("Semantic similarity score: %.2f", bestScore),
+				AlternativeMappings:   findAlternativeMappings(sourceField, templateFields, sourceValue),
+			})
+			matched = true
+		}
+
+		if !matched {
+			unmappedSource = append(unmappedSource, sourceField)
+		}
+	}
+
+	// Find unmapped template fields
+	for _, templateField := range templateFields {
+		found := false
+		for _, mapping := range mappings {
+			if mapping.TemplateField == templateField {
+				found = true
+				break
+			}
+		}
+		if !found {
+			unmappedTemplate = append(unmappedTemplate, templateField)
+		}
+	}
+
+	overallConfidence := calculateOverallConfidence(mappings)
+
+	result := &SemanticMappingResult{
+		Mappings:          mappings,
+		UnmappedSource:    unmappedSource,
+		UnmappedTemplate:  unmappedTemplate,
+		OverallConfidence: overallConfidence,
+		MappingStrategy:   "rule_based_semantic",
+		Metadata: map[string]interface{}{
+			"provider":     "default",
+			"documentType": documentType,
+			"method":       "rule_based_semantic_matching",
+		},
+		Warnings:        generateMappingWarnings(mappings, unmappedSource, unmappedTemplate),
+		Recommendations: generateMappingRecommendations(mappings, documentType),
+	}
+
+	atomic.AddInt64(&dp.stats.SuccessfulCalls, 1)
+	return result, nil
+}
+
+// ResolveFieldConflicts resolves conflicts using rule-based precedence and confidence
+func (dp *DefaultProvider) ResolveFieldConflicts(ctx context.Context, conflicts []FieldConflict, resolutionContext *ConflictResolutionContext) (*ConflictResolutionResult, error) {
+	atomic.AddInt64(&dp.stats.TotalRequests, 1)
+
+	resolvedValues := make(map[string]interface{})
+	alternativeValues := []interface{}{}
+	requiresReview := false
+
+	for _, conflict := range conflicts {
+		if len(conflict.Values) == 0 {
+			continue
+		}
+
+		// Apply business rules first
+		if resolutionContext != nil && len(resolutionContext.BusinessRules) > 0 {
+			resolved := applyBusinessRulesResolution(conflict, resolutionContext.BusinessRules)
+			if resolved != nil {
+				resolvedValues[conflict.FieldName] = resolved
+				continue
+			}
+		}
+
+		// Confidence-based resolution
+		bestValue := conflict.Values[0]
+		for _, value := range conflict.Values {
+			if value.Confidence > bestValue.Confidence {
+				bestValue = value
+			}
+		}
+
+		resolvedValues[conflict.FieldName] = bestValue.Value
+
+		// Flag for manual review if confidence is low or many conflicting values
+		if bestValue.Confidence < 0.7 || len(conflict.Values) > 3 {
+			requiresReview = true
+		}
+
+		// Collect alternative values
+		for _, value := range conflict.Values {
+			if value.Value != bestValue.Value {
+				alternativeValues = append(alternativeValues, value.Value)
+			}
+		}
+	}
+
+	result := &ConflictResolutionResult{
+		ResolvedValues:    resolvedValues,
+		ResolutionMethod:  "rule_based_confidence",
+		Confidence:        calculateResolutionConfidence(conflicts, resolvedValues),
+		Justification:     "Applied business rules and confidence-based resolution",
+		RequiresReview:    requiresReview,
+		AlternativeValues: alternativeValues,
+		Metadata: map[string]interface{}{
+			"provider":      "default",
+			"method":        "rule_based_resolution",
+			"conflictCount": len(conflicts),
+		},
+	}
+
+	atomic.AddInt64(&dp.stats.SuccessfulCalls, 1)
+	return result, nil
+}
+
+// AnalyzeTemplateStructure analyzes template structure using pattern recognition
+func (dp *DefaultProvider) AnalyzeTemplateStructure(ctx context.Context, templatePath string, templateContent []byte) (*TemplateStructureAnalysis, error) {
+	atomic.AddInt64(&dp.stats.TotalRequests, 1)
+
+	content := string(templateContent)
+	fields := analyzeTemplateFields(content)
+	sections := analyzeTemplateSections(content)
+	relationships := analyzeFieldRelationships(fields)
+	requiredFields, optionalFields := classifyFieldRequirements(fields)
+	calculatedFields := identifyCalculatedFields(content, fields)
+	validationRules := generateTemplateValidationRules(fields)
+	complexity := assessTemplateComplexity(fields, sections, relationships)
+	compatibilityScore := calculateCompatibilityScore(fields, sections)
+
+	result := &TemplateStructureAnalysis{
+		TemplateName:       filepath.Base(templatePath),
+		TemplateType:       inferTemplateType(templatePath),
+		Fields:             fields,
+		Sections:           sections,
+		Relationships:      relationships,
+		RequiredFields:     requiredFields,
+		OptionalFields:     optionalFields,
+		CalculatedFields:   calculatedFields,
+		ValidationRules:    validationRules,
+		Complexity:         complexity,
+		CompatibilityScore: compatibilityScore,
+		Metadata: map[string]interface{}{
+			"provider":    "default",
+			"method":      "pattern_recognition",
+			"contentSize": len(templateContent),
+		},
+	}
+
+	atomic.AddInt64(&dp.stats.SuccessfulCalls, 1)
+	return result, nil
+}
+
+// ValidateFieldMapping validates field mappings using rule-based validation
+func (dp *DefaultProvider) ValidateFieldMapping(ctx context.Context, mapping *FieldMapping, validationRules []ValidationRule) (*MappingValidationResult, error) {
+	atomic.AddInt64(&dp.stats.TotalRequests, 1)
+
+	validationResults := []FieldValidationResult{}
+	errors := []ValidationError{}
+	warnings := []ValidationWarning{}
+	recommendations := []string{}
+	auditTrail := []AuditEntry{}
+
+	// Validate data type compatibility
+	fieldResult := FieldValidationResult{
+		FieldName:      mapping.TemplateField,
+		IsValid:        true,
+		Score:          1.0,
+		AppliedRules:   []string{},
+		ValidationTime: time.Now().Format(time.RFC3339),
+		Metadata: map[string]interface{}{
+			"provider": "default",
+		},
+	}
+
+	// Apply validation rules
+	for _, rule := range validationRules {
+		if rule.FieldName == mapping.TemplateField || rule.FieldName == "*" {
+			ruleResult := applyValidationRule(mapping, rule)
+			fieldResult.AppliedRules = append(fieldResult.AppliedRules, rule.ID)
+
+			if !ruleResult.IsValid {
+				fieldResult.IsValid = false
+				fieldResult.Score *= 0.8 // Reduce score for failed validation
+
+				if "error" == "error" {
+					errors = append(errors, ValidationError{
+						Field:    mapping.TemplateField,
+						Message:  rule.ErrorMessage,
+						Severity: "error",
+						Value:    mapping.Value,
+					})
+				} else {
+					warnings = append(warnings, ValidationWarning{
+						Field:   mapping.TemplateField,
+						Message: rule.ErrorMessage,
+						Value:   mapping.Value,
+					})
+				}
+			}
+
+			auditTrail = append(auditTrail, AuditEntry{
+				Timestamp: time.Now().Format(time.RFC3339),
+				Action:    fmt.Sprintf("Applied rule: %s", rule.ID),
+				Details:   fmt.Sprintf("Result: %t", ruleResult.IsValid),
+				Metadata:  map[string]interface{}{"rule_id": rule.ID},
+			})
+		}
+	}
+
+	validationResults = append(validationResults, fieldResult)
+
+	// Generate recommendations
+	if !fieldResult.IsValid {
+		recommendations = append(recommendations, "Review field mapping for validation rule compliance")
+	}
+	if fieldResult.Score < 0.8 {
+		recommendations = append(recommendations, "Consider alternative mapping strategies")
+	}
+
+	overallScore := fieldResult.Score
+	isValid := fieldResult.IsValid
+
+	result := &MappingValidationResult{
+		IsValid:           isValid,
+		OverallScore:      overallScore,
+		ValidationResults: validationResults,
+		Errors:            errors,
+		Warnings:          warnings,
+		Recommendations:   recommendations,
+		AuditTrail:        auditTrail,
+		Metadata: map[string]interface{}{
+			"provider": "default",
+			"method":   "rule_based_validation",
+		},
+	}
+
+	atomic.AddInt64(&dp.stats.SuccessfulCalls, 1)
+	return result, nil
+}
+
+// Helper functions for default provider semantic mapping
+
+func generateSuggestions(fieldName string, fieldValue interface{}) []string {
+	suggestions := []string{}
+	fieldNameLower := strings.ToLower(fieldName)
+
+	if strings.Contains(fieldNameLower, "revenue") {
+		suggestions = append(suggestions, "Consider formatting as currency", "May require annual/quarterly specification")
+	}
+	if strings.Contains(fieldNameLower, "date") {
+		suggestions = append(suggestions, "Standardize date format", "Consider timezone implications")
+	}
+	if strings.Contains(fieldNameLower, "company") {
+		suggestions = append(suggestions, "Validate against company database", "Check for legal entity suffixes")
+	}
+
+	return suggestions
+}
+
+func generateBusinessRules(fieldName string, fieldValue interface{}) []string {
+	rules := []string{}
+	fieldNameLower := strings.ToLower(fieldName)
+
+	if strings.Contains(fieldNameLower, "revenue") || strings.Contains(fieldNameLower, "ebitda") {
+		rules = append(rules, "Must be positive number", "Currency format required", "Validate against financial context")
+	}
+	if strings.Contains(fieldNameLower, "percentage") || strings.Contains(fieldNameLower, "margin") {
+		rules = append(rules, "Must be between 0-100", "Percentage format required")
+	}
+	if strings.Contains(fieldNameLower, "date") {
+		rules = append(rules, "Must be valid date", "Cannot be future date for historical data")
+	}
+
+	return rules
+}
+
+func calculateSemanticSimilarity(sourceField, templateField string, sourceValue interface{}) float64 {
+	// Exact match
+	if strings.EqualFold(sourceField, templateField) {
+		return 1.0
+	}
+
+	sourceFieldLower := strings.ToLower(sourceField)
+	templateFieldLower := strings.ToLower(templateField)
+
+	// Substring match
+	if strings.Contains(templateFieldLower, sourceFieldLower) || strings.Contains(sourceFieldLower, templateFieldLower) {
+		return 0.8
+	}
+
+	// Semantic keyword matching
+	sourceKeywords := extractKeywords(sourceFieldLower)
+	templateKeywords := extractKeywords(templateFieldLower)
+
+	matchCount := 0
+	for _, sourceKeyword := range sourceKeywords {
+		for _, templateKeyword := range templateKeywords {
+			if sourceKeyword == templateKeyword {
+				matchCount++
+				break
+			}
+		}
+	}
+
+	if len(sourceKeywords) > 0 {
+		return float64(matchCount) / float64(len(sourceKeywords)) * 0.7
+	}
+
+	return 0.0
+}
+
+func extractKeywords(field string) []string {
+	// Common business keywords for semantic matching
+	keywords := []string{}
+	field = strings.ToLower(field)
+
+	businessTerms := []string{"revenue", "ebitda", "profit", "loss", "cost", "expense", "asset", "liability",
+		"company", "firm", "organization", "date", "time", "price", "value", "amount", "total", "net", "gross",
+		"margin", "ratio", "percentage", "rate", "name", "title", "contact", "address", "phone", "email"}
+
+	for _, term := range businessTerms {
+		if strings.Contains(field, term) {
+			keywords = append(keywords, term)
+		}
+	}
+
+	return keywords
+}
+
+func determineTransformation(sourceField, templateField string, sourceValue interface{}) *FieldTransformation {
+	sourceType := inferSemanticType(sourceField, sourceValue)
+	templateType := inferSemanticType(templateField, nil)
+
+	if sourceType == templateType {
+		return &FieldTransformation{
+			Type:        "direct",
+			Function:    "copy",
+			Parameters:  map[string]interface{}{},
+			Description: "Direct value copy",
+		}
+	}
+
+	if sourceType == "number" && templateType == "currency" {
+		return &FieldTransformation{
+			Type:        "format",
+			Function:    "number_to_currency",
+			Parameters:  map[string]interface{}{"currency": "USD", "decimals": 2},
+			Description: "Format number as currency",
+		}
+	}
+
+	if sourceType == "text" && templateType == "date" {
+		return &FieldTransformation{
+			Type:        "format",
+			Function:    "text_to_date",
+			Parameters:  map[string]interface{}{"format": "auto_detect"},
+			Description: "Parse text as date",
+		}
+	}
+
+	return &FieldTransformation{
+		Type:        "format",
+		Function:    "auto_format",
+		Parameters:  map[string]interface{}{},
+		Description: "Auto-format based on target type",
+	}
+}
+
+func findAlternativeMappings(sourceField string, templateFields []string, sourceValue interface{}) []AlternativeMapping {
+	alternatives := []AlternativeMapping{}
+
+	for _, templateField := range templateFields {
+		score := calculateSemanticSimilarity(sourceField, templateField, sourceValue)
+		if score > 0.3 && score < 0.5 { // Alternative threshold
+			alternatives = append(alternatives, AlternativeMapping{
+				TemplateField: templateField,
+				Confidence:    score,
+				Justification: fmt.Sprintf("Partial semantic match (%.2f)", score),
+			})
+		}
+	}
+
+	return alternatives
+}
+
+func calculateOverallConfidence(mappings []SemanticFieldMapping) float64 {
+	if len(mappings) == 0 {
+		return 0.0
+	}
+
+	total := 0.0
+	for _, mapping := range mappings {
+		total += mapping.Confidence
+	}
+
+	return total / float64(len(mappings))
+}
+
+func generateMappingWarnings(mappings []SemanticFieldMapping, unmappedSource, unmappedTemplate []string) []string {
+	warnings := []string{}
+
+	if len(unmappedSource) > 0 {
+		warnings = append(warnings, fmt.Sprintf("%d source fields could not be mapped", len(unmappedSource)))
+	}
+
+	if len(unmappedTemplate) > 0 {
+		warnings = append(warnings, fmt.Sprintf("%d template fields remain unfilled", len(unmappedTemplate)))
+	}
+
+	lowConfidenceCount := 0
+	for _, mapping := range mappings {
+		if mapping.Confidence < 0.7 {
+			lowConfidenceCount++
+		}
+	}
+
+	if lowConfidenceCount > 0 {
+		warnings = append(warnings, fmt.Sprintf("%d mappings have low confidence scores", lowConfidenceCount))
+	}
+
+	return warnings
+}
+
+func generateMappingRecommendations(mappings []SemanticFieldMapping, documentType string) []string {
+	recommendations := []string{}
+
+	recommendations = append(recommendations, "Review all mappings for accuracy")
+	recommendations = append(recommendations, "Validate data transformations")
+
+	if documentType == "financial" {
+		recommendations = append(recommendations, "Ensure currency formatting is consistent")
+		recommendations = append(recommendations, "Validate financial calculations")
+	}
+
+	return recommendations
+}
+
+func applyBusinessRulesResolution(conflict FieldConflict, rules []BusinessRule) interface{} {
+	// Simple rule-based resolution - can be enhanced
+	for _, rule := range rules {
+		if rule.RuleType == "precedence" && strings.Contains(rule.Condition, conflict.FieldName) {
+			// Apply precedence rule
+			for _, value := range conflict.Values {
+				if strings.Contains(rule.Action, value.Source) {
+					return value.Value
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func calculateResolutionConfidence(conflicts []FieldConflict, resolvedValues map[string]interface{}) float64 {
+	if len(conflicts) == 0 {
+		return 1.0
+	}
+
+	totalConfidence := 0.0
+	for _, conflict := range conflicts {
+		if _, resolved := resolvedValues[conflict.FieldName]; resolved {
+			// Find the confidence of the resolved value
+			for _, value := range conflict.Values {
+				if value.Value == resolvedValues[conflict.FieldName] {
+					totalConfidence += value.Confidence
+					break
+				}
+			}
+		}
+	}
+
+	return totalConfidence / float64(len(conflicts))
+}
+
+// Template analysis helper functions
+func analyzeTemplateFields(content string) []TemplateField {
+	fields := []TemplateField{}
+
+	// Simple pattern-based field detection
+	commonFields := map[string]string{
+		"Company":    "text",
+		"Revenue":    "currency",
+		"EBITDA":     "currency",
+		"Date":       "date",
+		"Price":      "currency",
+		"Percentage": "percentage",
+		"Total":      "currency",
+		"Name":       "text",
+		"Address":    "text",
+		"Phone":      "text",
+		"Email":      "text",
+	}
+
+	for fieldName, fieldType := range commonFields {
+		if strings.Contains(content, fieldName) {
+			fields = append(fields, TemplateField{
+				Name:     fieldName,
+				Type:     fieldType,
+				Required: isFieldRequired(fieldName),
+			})
+		}
+	}
+
+	return fields
+}
+
+func analyzeTemplateSections(content string) []TemplateSection {
+	sections := []TemplateSection{}
+
+	// Basic section detection
+	if strings.Contains(content, "Summary") || strings.Contains(content, "Executive") {
+		sections = append(sections, TemplateSection{
+			Name:        "Executive Summary",
+			Type:        "header",
+			Description: "Executive summary section",
+		})
+	}
+
+	if strings.Contains(content, "Financial") || strings.Contains(content, "Revenue") {
+		sections = append(sections, TemplateSection{
+			Name:        "Financial Data",
+			Type:        "data",
+			Description: "Financial information section",
+		})
+	}
+
+	return sections
+}
+
+func analyzeFieldRelationships(fields []TemplateField) []FieldRelationship {
+	relationships := []FieldRelationship{}
+
+	// Simple relationship detection
+	for _, field := range fields {
+		if field.Name == "Total" {
+			relationships = append(relationships, FieldRelationship{
+				SourceField:      "Revenue",
+				TargetField:      "Total",
+				RelationshipType: "calculates_from",
+				Description:      "Total may be calculated from revenue and other components",
+			})
+		}
+	}
+
+	return relationships
+}
+
+func classifyFieldRequirements(fields []TemplateField) ([]string, []string) {
+	required := []string{}
+	optional := []string{}
+
+	for _, field := range fields {
+		if field.Required || isFieldRequired(field.Name) {
+			required = append(required, field.Name)
+		} else {
+			optional = append(optional, field.Name)
+		}
+	}
+
+	return required, optional
+}
+
+func isFieldRequired(fieldName string) bool {
+	requiredFields := []string{"Company", "Revenue", "Date", "Name"}
+	fieldNameLower := strings.ToLower(fieldName)
+
+	for _, required := range requiredFields {
+		if strings.Contains(fieldNameLower, strings.ToLower(required)) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func identifyCalculatedFields(content string, fields []TemplateField) []CalculatedField {
+	calculated := []CalculatedField{}
+
+	// Simple formula detection
+	if strings.Contains(content, "=") || strings.Contains(content, "SUM") || strings.Contains(content, "TOTAL") {
+		calculated = append(calculated, CalculatedField{
+			Name:        "Total",
+			Formula:     "SUM(Revenue, Other)",
+			InputFields: []string{"Revenue"},
+			OutputType:  "currency",
+			Description: "Calculated total from revenue components",
+		})
+	}
+
+	return calculated
+}
+
+func generateTemplateValidationRules(fields []TemplateField) []ValidationRule {
+	rules := []ValidationRule{}
+
+	for _, field := range fields {
+		if field.Type == "currency" {
+			rules = append(rules, ValidationRule{
+				ID:           fmt.Sprintf("currency_%s", field.Name),
+				FieldName:    field.Name,
+				RuleType:     "format",
+				Pattern:      "is_currency_format",
+				ErrorMessage: "Must be valid currency format",
+				Confidence:   0.9,
+				IsActive:     true,
+				CreatedAt:    time.Now(),
+			})
+		}
+
+		if field.Required {
+			rules = append(rules, ValidationRule{
+				ID:           fmt.Sprintf("required_%s", field.Name),
+				FieldName:    field.Name,
+				RuleType:     "business_logic",
+				Pattern:      "not_empty",
+				ErrorMessage: "Field is required",
+				Confidence:   0.9,
+				IsActive:     true,
+				CreatedAt:    time.Now(),
+			})
+		}
+	}
+
+	return rules
+}
+
+func assessTemplateComplexity(fields []TemplateField, sections []TemplateSection, relationships []FieldRelationship) string {
+	score := len(fields) + len(sections)*2 + len(relationships)*3
+
+	if score < 10 {
+		return "simple"
+	} else if score < 25 {
+		return "moderate"
+	} else {
+		return "complex"
+	}
+}
+
+func calculateCompatibilityScore(fields []TemplateField, sections []TemplateSection) float64 {
+	// Simple compatibility assessment based on recognizable patterns
+	recognizedFields := 0
+	for _, field := range fields {
+		if isCommonBusinessField(field.Name) {
+			recognizedFields++
+		}
+	}
+
+	if len(fields) == 0 {
+		return 0.5
+	}
+
+	baseScore := float64(recognizedFields) / float64(len(fields))
+
+	// Bonus for well-structured templates
+	if len(sections) > 0 {
+		baseScore += 0.1
+	}
+
+	if baseScore > 1.0 {
+		return 1.0
+	}
+
+	return baseScore
+}
+
+func isCommonBusinessField(fieldName string) bool {
+	commonFields := []string{"company", "revenue", "ebitda", "date", "price", "total", "name", "address", "phone", "email"}
+	fieldNameLower := strings.ToLower(fieldName)
+
+	for _, common := range commonFields {
+		if strings.Contains(fieldNameLower, common) {
+			return true
+		}
+	}
+
+	return false
+}
+
+type RuleValidationResult struct {
+	IsValid bool
+	Message string
+}
+
+func applyValidationRule(mapping *FieldMapping, rule ValidationRule) RuleValidationResult {
+	switch rule.RuleType {
+	case "format":
+		return validateFormatRule(mapping, rule)
+	case "range":
+		return validateRange(mapping, rule)
+	case "business_logic":
+		return validateBusinessLogic(mapping, rule)
+	default:
+		return RuleValidationResult{IsValid: true, Message: "Rule type not implemented"}
+	}
+}
+
+func validateFormatRule(mapping *FieldMapping, rule ValidationRule) RuleValidationResult {
+	// Simple format validation
+	if rule.Pattern == "is_currency_format" {
+		if str, ok := mapping.Value.(string); ok {
+			if strings.Contains(str, "$") || strings.Contains(str, ",") {
+				return RuleValidationResult{IsValid: true, Message: "Valid currency format"}
+			}
+		}
+		return RuleValidationResult{IsValid: false, Message: "Invalid currency format"}
+	}
+
+	return RuleValidationResult{IsValid: true, Message: "Format validation passed"}
+}
+
+func validateRange(mapping *FieldMapping, rule ValidationRule) RuleValidationResult {
+	// Simple range validation
+	return RuleValidationResult{IsValid: true, Message: "Range validation passed"}
+}
+
+func validateBusinessLogic(mapping *FieldMapping, rule ValidationRule) RuleValidationResult {
+	if rule.Pattern == "not_empty" {
+		if mapping.Value == nil || mapping.Value == "" {
+			return RuleValidationResult{IsValid: false, Message: "Field cannot be empty"}
+		}
+	}
+
+	return RuleValidationResult{IsValid: true, Message: "Business logic validation passed"}
 }

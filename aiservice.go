@@ -951,3 +951,406 @@ type ValidationSummary struct {
 	ConflictsResolved int     `json:"conflictsResolved"`
 	OverallConfidence float64 `json:"overallConfidence"`
 }
+
+// SEMANTIC FIELD MAPPING ENGINE INTERFACE FOR TASK 2.1
+type SemanticFieldMappingInterface interface {
+	// AnalyzeFieldSemantics analyzes field meaning and context for semantic understanding
+	AnalyzeFieldSemantics(ctx context.Context, fieldName string, fieldValue interface{}, documentContext string) (*FieldSemanticAnalysis, error)
+
+	// CreateSemanticMapping creates intelligent field mappings based on semantic understanding
+	CreateSemanticMapping(ctx context.Context, sourceFields map[string]interface{}, templateFields []string, documentType string) (*SemanticMappingResult, error)
+
+	// ResolveFieldConflicts resolves conflicts when multiple sources provide different values for the same field
+	ResolveFieldConflicts(ctx context.Context, conflicts []FieldConflict, resolutionContext *ConflictResolutionContext) (*ConflictResolutionResult, error)
+
+	// AnalyzeTemplateStructure analyzes template structure and field requirements
+	AnalyzeTemplateStructure(ctx context.Context, templatePath string, templateContent []byte) (*TemplateStructureAnalysis, error)
+
+	// ValidateFieldMapping validates the logical consistency and business rule compliance of field mappings
+	ValidateFieldMapping(ctx context.Context, mapping *FieldMapping, validationRules []ValidationRule) (*MappingValidationResult, error)
+}
+
+// SEMANTIC FIELD MAPPING DATA STRUCTURES FOR TASK 2.1
+
+// FieldSemanticAnalysis represents the semantic analysis of a field
+type FieldSemanticAnalysis struct {
+	FieldName        string                 `json:"field_name"`
+	SemanticType     string                 `json:"semantic_type"`     // e.g., "currency", "date", "company_name", "percentage"
+	BusinessCategory string                 `json:"business_category"` // e.g., "financial", "entity", "legal", "operational"
+	DataType         string                 `json:"data_type"`         // e.g., "number", "string", "date", "boolean"
+	ExpectedFormat   string                 `json:"expected_format"`   // e.g., "$#,##0.00", "MM/dd/yyyy", "Title Case"
+	ConfidenceScore  float64                `json:"confidence_score"`  // 0.0 to 1.0
+	Context          string                 `json:"context"`           // Surrounding context that influenced the analysis
+	Metadata         map[string]interface{} `json:"metadata"`
+	Suggestions      []string               `json:"suggestions"`    // Alternative interpretations
+	BusinessRules    []string               `json:"business_rules"` // Applicable business rules
+}
+
+// SemanticMappingResult represents the result of semantic field mapping
+type SemanticMappingResult struct {
+	Mappings          []SemanticFieldMapping `json:"mappings"`
+	UnmappedSource    []string               `json:"unmapped_source"`   // Source fields that couldn't be mapped
+	UnmappedTemplate  []string               `json:"unmapped_template"` // Template fields that couldn't be filled
+	OverallConfidence float64                `json:"overall_confidence"`
+	MappingStrategy   string                 `json:"mapping_strategy"` // Strategy used for mapping
+	Metadata          map[string]interface{} `json:"metadata"`
+	Warnings          []string               `json:"warnings"`
+	Recommendations   []string               `json:"recommendations"`
+}
+
+// SemanticFieldMapping represents a semantic mapping between source and template fields
+type SemanticFieldMapping struct {
+	SourceField           string               `json:"source_field"`
+	TemplateField         string               `json:"template_field"`
+	MappingType           string               `json:"mapping_type"` // "direct", "transformation", "aggregation", "calculation"
+	Confidence            float64              `json:"confidence"`
+	Transformation        *FieldTransformation `json:"transformation,omitempty"`
+	BusinessJustification string               `json:"business_justification"`
+	AlternativeMappings   []AlternativeMapping `json:"alternative_mappings,omitempty"`
+}
+
+// FieldTransformation represents a transformation applied to field data
+type FieldTransformation struct {
+	Type        string                 `json:"type"`        // "format", "calculate", "lookup", "aggregate"
+	Function    string                 `json:"function"`    // Specific transformation function
+	Parameters  map[string]interface{} `json:"parameters"`  // Transformation parameters
+	Description string                 `json:"description"` // Human-readable description
+}
+
+// AlternativeMapping represents alternative mapping options
+type AlternativeMapping struct {
+	TemplateField string  `json:"template_field"`
+	Confidence    float64 `json:"confidence"`
+	Justification string  `json:"justification"`
+}
+
+// FieldConflict represents a conflict between multiple field values
+type FieldConflict struct {
+	FieldName    string                 `json:"field_name"`
+	Values       []ConflictingValue     `json:"values"`
+	ConflictType string                 `json:"conflict_type"` // "value_mismatch", "format_difference", "data_type_conflict"
+	Severity     string                 `json:"severity"`      // "low", "medium", "high", "critical"
+	Context      map[string]interface{} `json:"context"`
+}
+
+// ConflictingValue is defined in types.go
+
+// ConflictResolutionContext provides context for resolving conflicts
+type ConflictResolutionContext struct {
+	DocumentTypes   []string               `json:"document_types"`
+	BusinessRules   []BusinessRule         `json:"business_rules"`
+	UserPreferences map[string]interface{} `json:"user_preferences"`
+	HistoricalData  map[string]interface{} `json:"historical_data"`
+	QualityMetrics  map[string]float64     `json:"quality_metrics"`
+}
+
+// ConflictResolutionResult represents the result of conflict resolution
+type ConflictResolutionResult struct {
+	ResolvedValues    map[string]interface{} `json:"resolved_values"`
+	ResolutionMethod  string                 `json:"resolution_method"` // "confidence_based", "rule_based", "user_preference", "manual_review"
+	Confidence        float64                `json:"confidence"`
+	Justification     string                 `json:"justification"`
+	RequiresReview    bool                   `json:"requires_review"`
+	AlternativeValues []interface{}          `json:"alternative_values,omitempty"`
+	Metadata          map[string]interface{} `json:"metadata"`
+}
+
+// BusinessRule represents a business rule for validation
+type BusinessRule struct {
+	ID          string                 `json:"id"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	RuleType    string                 `json:"rule_type"` // "validation", "transformation", "precedence"
+	Condition   string                 `json:"condition"` // Rule condition
+	Action      string                 `json:"action"`    // Action to take
+	Priority    int                    `json:"priority"`  // Higher numbers = higher priority
+	Metadata    map[string]interface{} `json:"metadata"`
+}
+
+// TemplateStructureAnalysis represents analysis of template structure
+type TemplateStructureAnalysis struct {
+	TemplateName       string                 `json:"template_name"`
+	TemplateType       string                 `json:"template_type"` // "excel", "word", "pdf"
+	Fields             []TemplateField        `json:"fields"`
+	Sections           []TemplateSection      `json:"sections"`
+	Relationships      []FieldRelationship    `json:"relationships"`
+	RequiredFields     []string               `json:"required_fields"`
+	OptionalFields     []string               `json:"optional_fields"`
+	CalculatedFields   []CalculatedField      `json:"calculated_fields"`
+	ValidationRules    []ValidationRule       `json:"validation_rules"`
+	Complexity         string                 `json:"complexity"` // "simple", "moderate", "complex"
+	CompatibilityScore float64                `json:"compatibility_score"`
+	Metadata           map[string]interface{} `json:"metadata"`
+}
+
+// TemplateField is defined in templatediscovery.go
+
+// TemplateSection represents a logical section in a template
+type TemplateSection struct {
+	Name        string   `json:"name"`
+	Type        string   `json:"type"`     // "header", "data", "summary", "footer"
+	Fields      []string `json:"fields"`   // Field names in this section
+	Location    string   `json:"location"` // Range or position
+	Description string   `json:"description"`
+}
+
+// FieldRelationship represents relationships between fields
+type FieldRelationship struct {
+	SourceField      string                 `json:"source_field"`
+	TargetField      string                 `json:"target_field"`
+	RelationshipType string                 `json:"relationship_type"` // "depends_on", "calculates_from", "validates_against"
+	Description      string                 `json:"description"`
+	Metadata         map[string]interface{} `json:"metadata"`
+}
+
+// CalculatedField represents a field that is calculated from other fields
+type CalculatedField struct {
+	Name        string                 `json:"name"`
+	Formula     string                 `json:"formula"`
+	InputFields []string               `json:"input_fields"`
+	OutputType  string                 `json:"output_type"`
+	Description string                 `json:"description"`
+	Metadata    map[string]interface{} `json:"metadata"`
+}
+
+// ValidationRule is defined in correctionprocessor.go
+
+// MappingValidationResult represents the result of mapping validation
+type MappingValidationResult struct {
+	IsValid           bool                    `json:"is_valid"`
+	OverallScore      float64                 `json:"overall_score"` // 0.0 to 1.0
+	ValidationResults []FieldValidationResult `json:"validation_results"`
+	Errors            []ValidationError       `json:"errors"`
+	Warnings          []ValidationWarning     `json:"warnings"`
+	Recommendations   []string                `json:"recommendations"`
+	AuditTrail        []AuditEntry            `json:"audit_trail"`
+	Metadata          map[string]interface{}  `json:"metadata"`
+}
+
+// FieldValidationResult represents validation result for a specific field
+type FieldValidationResult struct {
+	FieldName      string                 `json:"field_name"`
+	IsValid        bool                   `json:"is_valid"`
+	Score          float64                `json:"score"`
+	AppliedRules   []string               `json:"applied_rules"`
+	ValidationTime string                 `json:"validation_time"`
+	Metadata       map[string]interface{} `json:"metadata"`
+}
+
+// AuditEntry represents an entry in the audit trail
+type AuditEntry struct {
+	Timestamp string                 `json:"timestamp"`
+	Action    string                 `json:"action"`
+	User      string                 `json:"user,omitempty"`
+	Details   string                 `json:"details"`
+	Metadata  map[string]interface{} `json:"metadata"`
+}
+
+// SEMANTIC FIELD MAPPING ENGINE IMPLEMENTATION METHODS FOR TASK 2.1
+
+// AnalyzeFieldSemantics analyzes field meaning and context for semantic understanding
+func (as *AIService) AnalyzeFieldSemantics(ctx context.Context, fieldName string, fieldValue interface{}, documentContext string) (*FieldSemanticAnalysis, error) {
+	// Check cache
+	cacheKey := as.cache.GenerateKey("field_semantics", fieldName, map[string]interface{}{
+		"fieldValue":      fieldValue,
+		"documentContext": documentContext,
+	})
+	if cached := as.cache.Get(cacheKey); cached != nil {
+		if result, ok := cached.(*FieldSemanticAnalysis); ok {
+			return result, nil
+		}
+	}
+
+	// Rate limiting
+	if err := as.rateLimiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limit exceeded: %w", err)
+	}
+
+	// Try providers with fallback
+	var lastError error
+	for _, provider := range as.fallbackOrder {
+		if p, exists := as.providers[provider]; exists && p.IsAvailable() {
+			if semanticProvider, ok := p.(SemanticFieldMappingInterface); ok {
+				result, err := semanticProvider.AnalyzeFieldSemantics(ctx, fieldName, fieldValue, documentContext)
+				if err == nil {
+					as.cache.Set(cacheKey, result)
+					return result, nil
+				}
+				lastError = err
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("field semantic analysis failed: %w", lastError)
+}
+
+// CreateSemanticMapping creates intelligent field mappings based on semantic understanding
+func (as *AIService) CreateSemanticMapping(ctx context.Context, sourceFields map[string]interface{}, templateFields []string, documentType string) (*SemanticMappingResult, error) {
+	// Check cache
+	cacheKey := as.cache.GenerateKey("semantic_mapping", "", map[string]interface{}{
+		"sourceFieldCount":   len(sourceFields),
+		"templateFieldCount": len(templateFields),
+		"documentType":       documentType,
+	})
+	if cached := as.cache.Get(cacheKey); cached != nil {
+		if result, ok := cached.(*SemanticMappingResult); ok {
+			return result, nil
+		}
+	}
+
+	// Rate limiting
+	if err := as.rateLimiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limit exceeded: %w", err)
+	}
+
+	// Try providers with fallback
+	var lastError error
+	for _, provider := range as.fallbackOrder {
+		if p, exists := as.providers[provider]; exists && p.IsAvailable() {
+			if semanticProvider, ok := p.(SemanticFieldMappingInterface); ok {
+				result, err := semanticProvider.CreateSemanticMapping(ctx, sourceFields, templateFields, documentType)
+				if err == nil {
+					as.cache.Set(cacheKey, result)
+					return result, nil
+				}
+				lastError = err
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("semantic mapping creation failed: %w", lastError)
+}
+
+// ResolveFieldConflicts resolves conflicts when multiple sources provide different values for the same field
+func (as *AIService) ResolveFieldConflicts(ctx context.Context, conflicts []FieldConflict, resolutionContext *ConflictResolutionContext) (*ConflictResolutionResult, error) {
+	// Check cache
+	cacheKey := as.cache.GenerateKey("conflict_resolution", "", map[string]interface{}{
+		"conflictCount": len(conflicts),
+		"contextHash":   generateContextHash(resolutionContext),
+	})
+	if cached := as.cache.Get(cacheKey); cached != nil {
+		if result, ok := cached.(*ConflictResolutionResult); ok {
+			return result, nil
+		}
+	}
+
+	// Rate limiting
+	if err := as.rateLimiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limit exceeded: %w", err)
+	}
+
+	// Try providers with fallback
+	var lastError error
+	for _, provider := range as.fallbackOrder {
+		if p, exists := as.providers[provider]; exists && p.IsAvailable() {
+			if semanticProvider, ok := p.(SemanticFieldMappingInterface); ok {
+				result, err := semanticProvider.ResolveFieldConflicts(ctx, conflicts, resolutionContext)
+				if err == nil {
+					as.cache.Set(cacheKey, result)
+					return result, nil
+				}
+				lastError = err
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("field conflict resolution failed: %w", lastError)
+}
+
+// AnalyzeTemplateStructure analyzes template structure and field requirements
+func (as *AIService) AnalyzeTemplateStructure(ctx context.Context, templatePath string, templateContent []byte) (*TemplateStructureAnalysis, error) {
+	// Check cache
+	cacheKey := as.cache.GenerateKey("template_structure", templatePath, map[string]interface{}{
+		"contentSize": len(templateContent),
+		"contentHash": generateContentHash(templateContent),
+	})
+	if cached := as.cache.Get(cacheKey); cached != nil {
+		if result, ok := cached.(*TemplateStructureAnalysis); ok {
+			return result, nil
+		}
+	}
+
+	// Rate limiting
+	if err := as.rateLimiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limit exceeded: %w", err)
+	}
+
+	// Try providers with fallback
+	var lastError error
+	for _, provider := range as.fallbackOrder {
+		if p, exists := as.providers[provider]; exists && p.IsAvailable() {
+			if semanticProvider, ok := p.(SemanticFieldMappingInterface); ok {
+				result, err := semanticProvider.AnalyzeTemplateStructure(ctx, templatePath, templateContent)
+				if err == nil {
+					as.cache.Set(cacheKey, result)
+					return result, nil
+				}
+				lastError = err
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("template structure analysis failed: %w", lastError)
+}
+
+// ValidateFieldMapping validates the logical consistency and business rule compliance of field mappings
+func (as *AIService) ValidateFieldMapping(ctx context.Context, mapping *FieldMapping, validationRules []ValidationRule) (*MappingValidationResult, error) {
+	// Check cache
+	cacheKey := as.cache.GenerateKey("mapping_validation", "", map[string]interface{}{
+		"mappingHash": generateMappingHash(mapping),
+		"rulesCount":  len(validationRules),
+	})
+	if cached := as.cache.Get(cacheKey); cached != nil {
+		if result, ok := cached.(*MappingValidationResult); ok {
+			return result, nil
+		}
+	}
+
+	// Rate limiting
+	if err := as.rateLimiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limit exceeded: %w", err)
+	}
+
+	// Try providers with fallback
+	var lastError error
+	for _, provider := range as.fallbackOrder {
+		if p, exists := as.providers[provider]; exists && p.IsAvailable() {
+			if semanticProvider, ok := p.(SemanticFieldMappingInterface); ok {
+				result, err := semanticProvider.ValidateFieldMapping(ctx, mapping, validationRules)
+				if err == nil {
+					as.cache.Set(cacheKey, result)
+					return result, nil
+				}
+				lastError = err
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("field mapping validation failed: %w", lastError)
+}
+
+// Helper functions for cache key generation
+func generateContextHash(context *ConflictResolutionContext) string {
+	if context == nil {
+		return "nil"
+	}
+	return fmt.Sprintf("dt_%d_br_%d_up_%d", len(context.DocumentTypes), len(context.BusinessRules), len(context.UserPreferences))
+}
+
+func generateContentHash(content []byte) string {
+	if len(content) == 0 {
+		return "empty"
+	}
+	// Simple hash based on content size and first/last bytes
+	if len(content) < 10 {
+		return fmt.Sprintf("small_%x", content)
+	}
+	return fmt.Sprintf("hash_%d_%x_%x", len(content), content[:5], content[len(content)-5:])
+}
+
+func generateMappingHash(mapping *FieldMapping) string {
+	if mapping == nil {
+		return "nil"
+	}
+	return fmt.Sprintf("map_%s_%s_%.2f", mapping.DocumentField, mapping.TemplateField, mapping.Confidence)
+}

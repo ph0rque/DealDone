@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -343,6 +344,23 @@ func (wh *WebhookHandlers) RegisterHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("/webhook/entity-extraction/financial-metrics", wh.handleExtractFinancialMetrics)
 	mux.HandleFunc("/webhook/entity-extraction/personnel-and-roles", wh.handleExtractPersonnelAndRoles)
 	mux.HandleFunc("/webhook/entity-extraction/validate-entities-across-documents", wh.handleValidateEntitiesAcrossDocuments)
+
+	// SEMANTIC FIELD MAPPING WEBHOOK ENDPOINTS FOR TASK 2.1
+
+	// handleAnalyzeFieldSemantics handles field semantic analysis requests
+	mux.HandleFunc("/webhook/analyze-field-semantics", wh.handleAnalyzeFieldSemantics)
+
+	// handleCreateSemanticMapping handles semantic field mapping requests
+	mux.HandleFunc("/webhook/create-semantic-mapping", wh.handleCreateSemanticMapping)
+
+	// handleResolveFieldConflicts handles field conflict resolution requests
+	mux.HandleFunc("/webhook/resolve-field-conflicts", wh.handleResolveFieldConflicts)
+
+	// handleAnalyzeTemplateStructure handles template structure analysis requests
+	mux.HandleFunc("/webhook/analyze-template-structure", wh.handleAnalyzeTemplateStructure)
+
+	// handleValidateFieldMapping handles field mapping validation requests
+	mux.HandleFunc("/webhook/validate-field-mapping", wh.handleValidateFieldMapping)
 }
 
 // CreateHTTPServer creates an HTTP server with webhook handlers
@@ -866,4 +884,180 @@ func (wh *WebhookHandlers) handleValidateEntitiesAcrossDocuments(w http.Response
 		"success": true,
 		"data":    result,
 	})
+}
+
+// SEMANTIC FIELD MAPPING WEBHOOK ENDPOINTS FOR TASK 2.1
+
+// handleAnalyzeFieldSemantics handles field semantic analysis requests
+func (wh *WebhookHandlers) handleAnalyzeFieldSemantics(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	var request struct {
+		FieldName       string      `json:"field_name"`
+		FieldValue      interface{} `json:"field_value"`
+		DocumentContext string      `json:"document_context"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	if request.FieldName == "" {
+		http.Error(w, "Field name is required", http.StatusBadRequest)
+		return
+	}
+
+	// Use AI service to analyze field semantics
+	result, err := wh.app.aiService.AnalyzeFieldSemantics(ctx, request.FieldName, request.FieldValue, request.DocumentContext)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Field semantic analysis failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// handleCreateSemanticMapping handles semantic field mapping requests
+func (wh *WebhookHandlers) handleCreateSemanticMapping(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	var request struct {
+		SourceFields   map[string]interface{} `json:"source_fields"`
+		TemplateFields []string               `json:"template_fields"`
+		DocumentType   string                 `json:"document_type"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	if len(request.SourceFields) == 0 {
+		http.Error(w, "Source fields are required", http.StatusBadRequest)
+		return
+	}
+
+	if len(request.TemplateFields) == 0 {
+		http.Error(w, "Template fields are required", http.StatusBadRequest)
+		return
+	}
+
+	// Use AI service to create semantic mapping
+	result, err := wh.app.aiService.CreateSemanticMapping(ctx, request.SourceFields, request.TemplateFields, request.DocumentType)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Semantic mapping creation failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// handleResolveFieldConflicts handles field conflict resolution requests
+func (wh *WebhookHandlers) handleResolveFieldConflicts(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	var request struct {
+		Conflicts         []FieldConflict            `json:"conflicts"`
+		ResolutionContext *ConflictResolutionContext `json:"resolution_context"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	if len(request.Conflicts) == 0 {
+		http.Error(w, "Conflicts are required", http.StatusBadRequest)
+		return
+	}
+
+	// Use AI service to resolve field conflicts
+	result, err := wh.app.aiService.ResolveFieldConflicts(ctx, request.Conflicts, request.ResolutionContext)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Field conflict resolution failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// handleAnalyzeTemplateStructure handles template structure analysis requests
+func (wh *WebhookHandlers) handleAnalyzeTemplateStructure(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	var request struct {
+		TemplatePath    string `json:"template_path"`
+		TemplateContent string `json:"template_content"` // Base64 encoded content
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	if request.TemplatePath == "" {
+		http.Error(w, "Template path is required", http.StatusBadRequest)
+		return
+	}
+
+	if request.TemplateContent == "" {
+		http.Error(w, "Template content is required", http.StatusBadRequest)
+		return
+	}
+
+	// Decode base64 content
+	templateContent, err := base64.StdEncoding.DecodeString(request.TemplateContent)
+	if err != nil {
+		http.Error(w, "Invalid base64 template content", http.StatusBadRequest)
+		return
+	}
+
+	// Use AI service to analyze template structure
+	result, err := wh.app.aiService.AnalyzeTemplateStructure(ctx, request.TemplatePath, templateContent)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Template structure analysis failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// handleValidateFieldMapping handles field mapping validation requests
+func (wh *WebhookHandlers) handleValidateFieldMapping(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	var request struct {
+		Mapping         *FieldMapping    `json:"mapping"`
+		ValidationRules []ValidationRule `json:"validation_rules"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	if request.Mapping == nil {
+		http.Error(w, "Field mapping is required", http.StatusBadRequest)
+		return
+	}
+
+	// Use AI service to validate field mapping
+	result, err := wh.app.aiService.ValidateFieldMapping(ctx, request.Mapping, request.ValidationRules)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Field mapping validation failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }

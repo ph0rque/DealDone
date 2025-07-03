@@ -964,3 +964,272 @@ Provide your response in JSON format with the following structure:
 	atomic.AddInt64(&cp.stats.SuccessfulCalls, 1)
 	return &result, nil
 }
+
+// SEMANTIC FIELD MAPPING ENGINE METHODS FOR TASK 2.1
+
+// AnalyzeFieldSemantics analyzes field meaning and context for semantic understanding
+func (cp *ClaudeProvider) AnalyzeFieldSemantics(ctx context.Context, fieldName string, fieldValue interface{}, documentContext string) (*FieldSemanticAnalysis, error) {
+	atomic.AddInt64(&cp.stats.TotalRequests, 1)
+
+	systemPrompt := `You are an expert semantic field analyst for M&A document processing.
+Analyze the given field name, value, and document context to understand the semantic meaning and business significance.
+
+Focus on:
+- Semantic type classification (currency, date, company_name, percentage, etc.)
+- Business category (financial, entity, legal, operational)
+- Data type and expected format
+- Business rules that apply
+- Confidence assessment
+
+Return a JSON response with the analysis results.`
+
+	userPrompt := fmt.Sprintf(`Analyze this field:
+Field Name: %s
+Field Value: %v
+Document Context: %s
+
+Provide semantic analysis including:
+1. Semantic type (currency, date, company_name, percentage, text, number, etc.)
+2. Business category (financial, entity, legal, operational, etc.)
+3. Data type (string, number, date, boolean)
+4. Expected format pattern
+5. Applicable business rules
+6. Confidence score (0.0 to 1.0)
+7. Alternative interpretations`, fieldName, fieldValue, documentContext)
+
+	response, err := cp.makeRequest(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		atomic.AddInt64(&cp.stats.FailedCalls, 1)
+		return nil, fmt.Errorf("Claude API request failed: %w", err)
+	}
+
+	var result FieldSemanticAnalysis
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		atomic.AddInt64(&cp.stats.FailedCalls, 1)
+		// Fallback with structured response
+		result = FieldSemanticAnalysis{
+			FieldName:        fieldName,
+			SemanticType:     inferSemanticType(fieldName, fieldValue),
+			BusinessCategory: inferBusinessCategory(fieldName),
+			DataType:         inferDataType(fieldValue),
+			ExpectedFormat:   inferExpectedFormat(fieldValue),
+			ConfidenceScore:  0.7,
+			Context:          documentContext,
+			Metadata: map[string]interface{}{
+				"provider":    "claude",
+				"fallback":    true,
+				"parse_error": err.Error(),
+			},
+			Suggestions:   []string{},
+			BusinessRules: []string{},
+		}
+	}
+
+	atomic.AddInt64(&cp.stats.SuccessfulCalls, 1)
+	return &result, nil
+}
+
+// CreateSemanticMapping creates intelligent field mappings based on semantic understanding
+func (cp *ClaudeProvider) CreateSemanticMapping(ctx context.Context, sourceFields map[string]interface{}, templateFields []string, documentType string) (*SemanticMappingResult, error) {
+	atomic.AddInt64(&cp.stats.TotalRequests, 1)
+
+	systemPrompt := `You are an expert field mapping specialist for M&A document processing.
+Create intelligent semantic mappings between source document fields and template fields.
+
+Consider:
+- Semantic similarity and business meaning
+- Field name variations and synonyms
+- Data type compatibility
+- Business logic and context
+- Confidence scoring for each mapping
+- Required transformations
+
+Return a JSON response with detailed mapping results.`
+
+	sourceFieldsJSON, _ := json.Marshal(sourceFields)
+	templateFieldsJSON, _ := json.Marshal(templateFields)
+
+	userPrompt := fmt.Sprintf(`Create semantic mappings for:
+Document Type: %s
+Source Fields: %s
+Template Fields: %s
+
+Provide:
+1. Individual field mappings with confidence scores
+2. Required transformations (format, calculate, lookup, aggregate)
+3. Business justification for each mapping
+4. Alternative mapping suggestions
+5. Unmapped fields and reasons
+6. Overall mapping strategy and confidence`, documentType, sourceFieldsJSON, templateFieldsJSON)
+
+	response, err := cp.makeRequest(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		atomic.AddInt64(&cp.stats.FailedCalls, 1)
+		return nil, fmt.Errorf("Claude API request failed: %w", err)
+	}
+
+	var result SemanticMappingResult
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		atomic.AddInt64(&cp.stats.FailedCalls, 1)
+		// Fallback with basic mapping
+		result = createFallbackMapping(sourceFields, templateFields, documentType)
+		result.Metadata["provider"] = "claude_fallback"
+	}
+
+	atomic.AddInt64(&cp.stats.SuccessfulCalls, 1)
+	return &result, nil
+}
+
+// ResolveFieldConflicts resolves conflicts when multiple sources provide different values for the same field
+func (cp *ClaudeProvider) ResolveFieldConflicts(ctx context.Context, conflicts []FieldConflict, resolutionContext *ConflictResolutionContext) (*ConflictResolutionResult, error) {
+	atomic.AddInt64(&cp.stats.TotalRequests, 1)
+
+	systemPrompt := `You are an expert conflict resolution specialist for M&A document processing.
+Resolve conflicts between field values from multiple sources using business logic and context.
+
+Consider:
+- Source reliability and confidence scores
+- Business rules and precedence
+- Data quality and consistency
+- User preferences and historical patterns
+- Resolution justification
+
+Return a JSON response with resolution decisions.`
+
+	conflictsJSON, _ := json.Marshal(conflicts)
+	contextJSON, _ := json.Marshal(resolutionContext)
+
+	userPrompt := fmt.Sprintf(`Resolve these field conflicts:
+Conflicts: %s
+Resolution Context: %s
+
+Provide:
+1. Resolved values for each conflict
+2. Resolution method used (confidence_based, rule_based, user_preference, manual_review)
+3. Detailed justification for each decision
+4. Confidence scores for resolutions
+5. Flags for conflicts requiring manual review
+6. Alternative values to consider`, conflictsJSON, contextJSON)
+
+	response, err := cp.makeRequest(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		atomic.AddInt64(&cp.stats.FailedCalls, 1)
+		return nil, fmt.Errorf("Claude API request failed: %w", err)
+	}
+
+	var result ConflictResolutionResult
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		atomic.AddInt64(&cp.stats.FailedCalls, 1)
+		// Fallback with confidence-based resolution
+		result = createFallbackResolution(conflicts)
+		result.Metadata["provider"] = "claude_fallback"
+	}
+
+	atomic.AddInt64(&cp.stats.SuccessfulCalls, 1)
+	return &result, nil
+}
+
+// AnalyzeTemplateStructure analyzes template structure and field requirements
+func (cp *ClaudeProvider) AnalyzeTemplateStructure(ctx context.Context, templatePath string, templateContent []byte) (*TemplateStructureAnalysis, error) {
+	atomic.AddInt64(&cp.stats.TotalRequests, 1)
+
+	// Truncate content if too long
+	contentStr := string(templateContent)
+	if len(contentStr) > 20000 {
+		contentStr = contentStr[:20000] + "..."
+	}
+
+	systemPrompt := `You are an expert template structure analyst for M&A document processing.
+Analyze template structure to understand field requirements, relationships, and validation rules.
+
+Focus on:
+- Field identification and types
+- Required vs optional fields
+- Calculated fields and formulas
+- Section organization
+- Field relationships and dependencies
+- Validation rules and constraints
+- Complexity assessment
+
+Return a JSON response with comprehensive structure analysis.`
+
+	userPrompt := fmt.Sprintf(`Analyze this template:
+Template Path: %s
+Template Content: %s
+
+Provide:
+1. Identified fields with types and locations
+2. Template sections and organization
+3. Field relationships and dependencies
+4. Required vs optional field classification
+5. Calculated fields and formulas
+6. Validation rules and constraints
+7. Complexity assessment and compatibility score`, templatePath, contentStr)
+
+	response, err := cp.makeRequest(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		atomic.AddInt64(&cp.stats.FailedCalls, 1)
+		return nil, fmt.Errorf("Claude API request failed: %w", err)
+	}
+
+	var result TemplateStructureAnalysis
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		atomic.AddInt64(&cp.stats.FailedCalls, 1)
+		// Fallback with basic structure analysis
+		result = createFallbackStructureAnalysis(templatePath, templateContent)
+		result.Metadata["provider"] = "claude_fallback"
+	}
+
+	atomic.AddInt64(&cp.stats.SuccessfulCalls, 1)
+	return &result, nil
+}
+
+// ValidateFieldMapping validates the logical consistency and business rule compliance of field mappings
+func (cp *ClaudeProvider) ValidateFieldMapping(ctx context.Context, mapping *FieldMapping, validationRules []ValidationRule) (*MappingValidationResult, error) {
+	atomic.AddInt64(&cp.stats.TotalRequests, 1)
+
+	systemPrompt := `You are an expert field mapping validator for M&A document processing.
+Validate field mappings against business rules and logical consistency requirements.
+
+Check for:
+- Data type compatibility
+- Format consistency
+- Business rule compliance
+- Logical relationships
+- Value ranges and constraints
+- Completeness and quality
+
+Return a JSON response with detailed validation results.`
+
+	mappingJSON, _ := json.Marshal(mapping)
+	rulesJSON, _ := json.Marshal(validationRules)
+
+	userPrompt := fmt.Sprintf(`Validate this field mapping:
+Mapping: %s
+Validation Rules: %s
+
+Provide:
+1. Overall validation status and score
+2. Individual field validation results
+3. Rule compliance assessment
+4. Errors and warnings with severity
+5. Recommendations for improvement
+6. Audit trail of validation steps`, mappingJSON, rulesJSON)
+
+	response, err := cp.makeRequest(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		atomic.AddInt64(&cp.stats.FailedCalls, 1)
+		return nil, fmt.Errorf("Claude API request failed: %w", err)
+	}
+
+	var result MappingValidationResult
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		atomic.AddInt64(&cp.stats.FailedCalls, 1)
+		// Fallback with basic validation
+		result = createFallbackValidation(mapping, validationRules)
+		result.Metadata["provider"] = "claude_fallback"
+	}
+
+	atomic.AddInt64(&cp.stats.SuccessfulCalls, 1)
+	return &result, nil
+}

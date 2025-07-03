@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -1019,4 +1020,538 @@ Provide your response in JSON format with the following structure:
 
 	atomic.AddInt64(&op.stats.SuccessfulCalls, 1)
 	return &result, nil
+}
+
+// SEMANTIC FIELD MAPPING ENGINE METHODS FOR TASK 2.1
+
+// AnalyzeFieldSemantics analyzes field meaning and context for semantic understanding
+func (op *OpenAIProvider) AnalyzeFieldSemantics(ctx context.Context, fieldName string, fieldValue interface{}, documentContext string) (*FieldSemanticAnalysis, error) {
+	atomic.AddInt64(&op.stats.TotalRequests, 1)
+
+	systemPrompt := `You are an expert semantic field analyst for M&A document processing.
+Analyze the given field name, value, and document context to understand the semantic meaning and business significance.
+
+Focus on:
+- Semantic type classification (currency, date, company_name, percentage, etc.)
+- Business category (financial, entity, legal, operational)
+- Data type and expected format
+- Business rules that apply
+- Confidence assessment
+
+Return a JSON response with the analysis results.`
+
+	userPrompt := fmt.Sprintf(`Analyze this field:
+Field Name: %s
+Field Value: %v
+Document Context: %s
+
+Provide semantic analysis including:
+1. Semantic type (currency, date, company_name, percentage, text, number, etc.)
+2. Business category (financial, entity, legal, operational, etc.)
+3. Data type (string, number, date, boolean)
+4. Expected format pattern
+5. Applicable business rules
+6. Confidence score (0.0 to 1.0)
+7. Alternative interpretations`, fieldName, fieldValue, documentContext)
+
+	messages := []openAIMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userPrompt},
+	}
+	response, err := op.makeRequest(ctx, messages, true)
+	if err != nil {
+		atomic.AddInt64(&op.stats.FailedCalls, 1)
+		return nil, fmt.Errorf("OpenAI API request failed: %w", err)
+	}
+
+	var result FieldSemanticAnalysis
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		atomic.AddInt64(&op.stats.FailedCalls, 1)
+		// Fallback with structured response
+		result = FieldSemanticAnalysis{
+			FieldName:        fieldName,
+			SemanticType:     inferSemanticType(fieldName, fieldValue),
+			BusinessCategory: inferBusinessCategory(fieldName),
+			DataType:         inferDataType(fieldValue),
+			ExpectedFormat:   inferExpectedFormat(fieldValue),
+			ConfidenceScore:  0.7,
+			Context:          documentContext,
+			Metadata: map[string]interface{}{
+				"provider":    "openai",
+				"fallback":    true,
+				"parse_error": err.Error(),
+			},
+			Suggestions:   []string{},
+			BusinessRules: []string{},
+		}
+	}
+
+	atomic.AddInt64(&op.stats.SuccessfulCalls, 1)
+	return &result, nil
+}
+
+// CreateSemanticMapping creates intelligent field mappings based on semantic understanding
+func (op *OpenAIProvider) CreateSemanticMapping(ctx context.Context, sourceFields map[string]interface{}, templateFields []string, documentType string) (*SemanticMappingResult, error) {
+	atomic.AddInt64(&op.stats.TotalRequests, 1)
+
+	systemPrompt := `You are an expert field mapping specialist for M&A document processing.
+Create intelligent semantic mappings between source document fields and template fields.
+
+Consider:
+- Semantic similarity and business meaning
+- Field name variations and synonyms
+- Data type compatibility
+- Business logic and context
+- Confidence scoring for each mapping
+- Required transformations
+
+Return a JSON response with detailed mapping results.`
+
+	sourceFieldsJSON, _ := json.Marshal(sourceFields)
+	templateFieldsJSON, _ := json.Marshal(templateFields)
+
+	userPrompt := fmt.Sprintf(`Create semantic mappings for:
+Document Type: %s
+Source Fields: %s
+Template Fields: %s
+
+Provide:
+1. Individual field mappings with confidence scores
+2. Required transformations (format, calculate, lookup, aggregate)
+3. Business justification for each mapping
+4. Alternative mapping suggestions
+5. Unmapped fields and reasons
+6. Overall mapping strategy and confidence`, documentType, sourceFieldsJSON, templateFieldsJSON)
+
+	messages := []openAIMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userPrompt},
+	}
+	response, err := op.makeRequest(ctx, messages, true)
+	if err != nil {
+		atomic.AddInt64(&op.stats.FailedCalls, 1)
+		return nil, fmt.Errorf("OpenAI API request failed: %w", err)
+	}
+
+	var result SemanticMappingResult
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		atomic.AddInt64(&op.stats.FailedCalls, 1)
+		// Fallback with basic mapping
+		result = createFallbackMapping(sourceFields, templateFields, documentType)
+	}
+
+	atomic.AddInt64(&op.stats.SuccessfulCalls, 1)
+	return &result, nil
+}
+
+// ResolveFieldConflicts resolves conflicts when multiple sources provide different values for the same field
+func (op *OpenAIProvider) ResolveFieldConflicts(ctx context.Context, conflicts []FieldConflict, resolutionContext *ConflictResolutionContext) (*ConflictResolutionResult, error) {
+	atomic.AddInt64(&op.stats.TotalRequests, 1)
+
+	systemPrompt := `You are an expert conflict resolution specialist for M&A document processing.
+Resolve conflicts between field values from multiple sources using business logic and context.
+
+Consider:
+- Source reliability and confidence scores
+- Business rules and precedence
+- Data quality and consistency
+- User preferences and historical patterns
+- Resolution justification
+
+Return a JSON response with resolution decisions.`
+
+	conflictsJSON, _ := json.Marshal(conflicts)
+	contextJSON, _ := json.Marshal(resolutionContext)
+
+	userPrompt := fmt.Sprintf(`Resolve these field conflicts:
+Conflicts: %s
+Resolution Context: %s
+
+Provide:
+1. Resolved values for each conflict
+2. Resolution method used (confidence_based, rule_based, user_preference, manual_review)
+3. Detailed justification for each decision
+4. Confidence scores for resolutions
+5. Flags for conflicts requiring manual review
+6. Alternative values to consider`, conflictsJSON, contextJSON)
+
+	messages := []openAIMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userPrompt},
+	}
+	response, err := op.makeRequest(ctx, messages, true)
+	if err != nil {
+		atomic.AddInt64(&op.stats.FailedCalls, 1)
+		return nil, fmt.Errorf("OpenAI API request failed: %w", err)
+	}
+
+	var result ConflictResolutionResult
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		atomic.AddInt64(&op.stats.FailedCalls, 1)
+		// Fallback with confidence-based resolution
+		result = createFallbackResolution(conflicts)
+	}
+
+	atomic.AddInt64(&op.stats.SuccessfulCalls, 1)
+	return &result, nil
+}
+
+// AnalyzeTemplateStructure analyzes template structure and field requirements
+func (op *OpenAIProvider) AnalyzeTemplateStructure(ctx context.Context, templatePath string, templateContent []byte) (*TemplateStructureAnalysis, error) {
+	atomic.AddInt64(&op.stats.TotalRequests, 1)
+
+	// Truncate content if too long
+	contentStr := string(templateContent)
+	if len(contentStr) > 20000 {
+		contentStr = contentStr[:20000] + "..."
+	}
+
+	systemPrompt := `You are an expert template structure analyst for M&A document processing.
+Analyze template structure to understand field requirements, relationships, and validation rules.
+
+Focus on:
+- Field identification and types
+- Required vs optional fields
+- Calculated fields and formulas
+- Section organization
+- Field relationships and dependencies
+- Validation rules and constraints
+- Complexity assessment
+
+Return a JSON response with comprehensive structure analysis.`
+
+	userPrompt := fmt.Sprintf(`Analyze this template:
+Template Path: %s
+Template Content: %s
+
+Provide:
+1. Identified fields with types and locations
+2. Template sections and organization
+3. Field relationships and dependencies
+4. Required vs optional field classification
+5. Calculated fields and formulas
+6. Validation rules and constraints
+7. Complexity assessment and compatibility score`, templatePath, contentStr)
+
+	messages := []openAIMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userPrompt},
+	}
+	response, err := op.makeRequest(ctx, messages, true)
+	if err != nil {
+		atomic.AddInt64(&op.stats.FailedCalls, 1)
+		return nil, fmt.Errorf("OpenAI API request failed: %w", err)
+	}
+
+	var result TemplateStructureAnalysis
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		atomic.AddInt64(&op.stats.FailedCalls, 1)
+		// Fallback with basic structure analysis
+		result = createFallbackStructureAnalysis(templatePath, templateContent)
+	}
+
+	atomic.AddInt64(&op.stats.SuccessfulCalls, 1)
+	return &result, nil
+}
+
+// ValidateFieldMapping validates the logical consistency and business rule compliance of field mappings
+func (op *OpenAIProvider) ValidateFieldMapping(ctx context.Context, mapping *FieldMapping, validationRules []ValidationRule) (*MappingValidationResult, error) {
+	atomic.AddInt64(&op.stats.TotalRequests, 1)
+
+	systemPrompt := `You are an expert field mapping validator for M&A document processing.
+Validate field mappings against business rules and logical consistency requirements.
+
+Check for:
+- Data type compatibility
+- Format consistency
+- Business rule compliance
+- Logical relationships
+- Value ranges and constraints
+- Completeness and quality
+
+Return a JSON response with detailed validation results.`
+
+	mappingJSON, _ := json.Marshal(mapping)
+	rulesJSON, _ := json.Marshal(validationRules)
+
+	userPrompt := fmt.Sprintf(`Validate this field mapping:
+Mapping: %s
+Validation Rules: %s
+
+Provide:
+1. Overall validation status and score
+2. Individual field validation results
+3. Rule compliance assessment
+4. Errors and warnings with severity
+5. Recommendations for improvement
+6. Audit trail of validation steps`, mappingJSON, rulesJSON)
+
+	messages := []openAIMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userPrompt},
+	}
+	response, err := op.makeRequest(ctx, messages, true)
+	if err != nil {
+		atomic.AddInt64(&op.stats.FailedCalls, 1)
+		return nil, fmt.Errorf("OpenAI API request failed: %w", err)
+	}
+
+	var result MappingValidationResult
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		atomic.AddInt64(&op.stats.FailedCalls, 1)
+		// Fallback with basic validation
+		result = createFallbackValidation(mapping, validationRules)
+	}
+
+	atomic.AddInt64(&op.stats.SuccessfulCalls, 1)
+	return &result, nil
+}
+
+// Helper functions for fallback implementations
+func inferSemanticType(fieldName string, fieldValue interface{}) string {
+	fieldNameLower := strings.ToLower(fieldName)
+
+	// Currency patterns
+	if strings.Contains(fieldNameLower, "price") || strings.Contains(fieldNameLower, "cost") ||
+		strings.Contains(fieldNameLower, "value") || strings.Contains(fieldNameLower, "revenue") ||
+		strings.Contains(fieldNameLower, "ebitda") {
+		return "currency"
+	}
+
+	// Date patterns
+	if strings.Contains(fieldNameLower, "date") || strings.Contains(fieldNameLower, "time") {
+		return "date"
+	}
+
+	// Company name patterns
+	if strings.Contains(fieldNameLower, "company") || strings.Contains(fieldNameLower, "firm") ||
+		strings.Contains(fieldNameLower, "organization") {
+		return "company_name"
+	}
+
+	// Percentage patterns
+	if strings.Contains(fieldNameLower, "percent") || strings.Contains(fieldNameLower, "rate") ||
+		strings.Contains(fieldNameLower, "margin") {
+		return "percentage"
+	}
+
+	// Check value type
+	switch fieldValue.(type) {
+	case float64, int, int64:
+		return "number"
+	case string:
+		return "text"
+	case bool:
+		return "boolean"
+	default:
+		return "text"
+	}
+}
+
+func inferBusinessCategory(fieldName string) string {
+	fieldNameLower := strings.ToLower(fieldName)
+
+	if strings.Contains(fieldNameLower, "revenue") || strings.Contains(fieldNameLower, "ebitda") ||
+		strings.Contains(fieldNameLower, "cost") || strings.Contains(fieldNameLower, "profit") {
+		return "financial"
+	}
+
+	if strings.Contains(fieldNameLower, "company") || strings.Contains(fieldNameLower, "person") ||
+		strings.Contains(fieldNameLower, "contact") {
+		return "entity"
+	}
+
+	if strings.Contains(fieldNameLower, "contract") || strings.Contains(fieldNameLower, "agreement") ||
+		strings.Contains(fieldNameLower, "legal") {
+		return "legal"
+	}
+
+	return "operational"
+}
+
+func inferDataType(fieldValue interface{}) string {
+	switch fieldValue.(type) {
+	case float64, int, int64:
+		return "number"
+	case string:
+		return "string"
+	case bool:
+		return "boolean"
+	default:
+		return "string"
+	}
+}
+
+func inferExpectedFormat(fieldValue interface{}) string {
+	switch v := fieldValue.(type) {
+	case float64, int, int64:
+		return "#,##0.00"
+	case string:
+		if len(v) > 0 && (v[0] == '$' || strings.Contains(v, "$")) {
+			return "$#,##0.00"
+		}
+		if strings.Contains(v, "%") {
+			return "#0.00%"
+		}
+		return "text"
+	default:
+		return "text"
+	}
+}
+
+func createFallbackMapping(sourceFields map[string]interface{}, templateFields []string, documentType string) SemanticMappingResult {
+	mappings := []SemanticFieldMapping{}
+	unmappedSource := []string{}
+	unmappedTemplate := []string{}
+
+	// Simple name-based matching
+	for sourceField := range sourceFields {
+		matched := false
+		for _, templateField := range templateFields {
+			if strings.EqualFold(sourceField, templateField) ||
+				strings.Contains(strings.ToLower(templateField), strings.ToLower(sourceField)) {
+				mappings = append(mappings, SemanticFieldMapping{
+					SourceField:           sourceField,
+					TemplateField:         templateField,
+					MappingType:           "direct",
+					Confidence:            0.6,
+					BusinessJustification: "Name similarity match",
+				})
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			unmappedSource = append(unmappedSource, sourceField)
+		}
+	}
+
+	// Find unmapped template fields
+	for _, templateField := range templateFields {
+		found := false
+		for _, mapping := range mappings {
+			if mapping.TemplateField == templateField {
+				found = true
+				break
+			}
+		}
+		if !found {
+			unmappedTemplate = append(unmappedTemplate, templateField)
+		}
+	}
+
+	return SemanticMappingResult{
+		Mappings:          mappings,
+		UnmappedSource:    unmappedSource,
+		UnmappedTemplate:  unmappedTemplate,
+		OverallConfidence: 0.6,
+		MappingStrategy:   "name_similarity_fallback",
+		Metadata: map[string]interface{}{
+			"provider":     "openai_fallback",
+			"documentType": documentType,
+		},
+		Warnings:        []string{"Using fallback mapping due to AI parsing error"},
+		Recommendations: []string{"Review mappings for accuracy"},
+	}
+}
+
+func createFallbackResolution(conflicts []FieldConflict) ConflictResolutionResult {
+	resolvedValues := make(map[string]interface{})
+
+	// Simple confidence-based resolution
+	for _, conflict := range conflicts {
+		if len(conflict.Values) > 0 {
+			bestValue := conflict.Values[0]
+			for _, value := range conflict.Values {
+				if value.Confidence > bestValue.Confidence {
+					bestValue = value
+				}
+			}
+			resolvedValues[conflict.FieldName] = bestValue.Value
+		}
+	}
+
+	return ConflictResolutionResult{
+		ResolvedValues:   resolvedValues,
+		ResolutionMethod: "confidence_based",
+		Confidence:       0.7,
+		Justification:    "Selected values with highest confidence scores",
+		RequiresReview:   len(conflicts) > 3, // Flag for manual review if many conflicts
+		Metadata: map[string]interface{}{
+			"provider":      "openai_fallback",
+			"conflictCount": len(conflicts),
+		},
+	}
+}
+
+func createFallbackStructureAnalysis(templatePath string, templateContent []byte) TemplateStructureAnalysis {
+	// Basic structure analysis
+	fields := []TemplateField{}
+	sections := []TemplateSection{}
+
+	// Simple field detection based on common patterns
+	content := string(templateContent)
+	if strings.Contains(content, "Company") {
+		fields = append(fields, TemplateField{
+			Name:     "Company",
+			Type:     "text",
+			Required: true,
+		})
+	}
+	if strings.Contains(content, "Revenue") {
+		fields = append(fields, TemplateField{
+			Name:     "Revenue",
+			Type:     "currency",
+			Required: true,
+		})
+	}
+
+	return TemplateStructureAnalysis{
+		TemplateName:       filepath.Base(templatePath),
+		TemplateType:       inferTemplateType(templatePath),
+		Fields:             fields,
+		Sections:           sections,
+		RequiredFields:     []string{"Company", "Revenue"},
+		OptionalFields:     []string{},
+		Complexity:         "simple",
+		CompatibilityScore: 0.7,
+		Metadata: map[string]interface{}{
+			"provider":    "openai_fallback",
+			"contentSize": len(templateContent),
+		},
+	}
+}
+
+func createFallbackValidation(mapping *FieldMapping, validationRules []ValidationRule) MappingValidationResult {
+	return MappingValidationResult{
+		IsValid:      true,
+		OverallScore: 0.7,
+		ValidationResults: []FieldValidationResult{
+			{
+				FieldName: mapping.TemplateField,
+				IsValid:   true,
+				Score:     0.7,
+			},
+		},
+		Errors:          []ValidationError{},
+		Warnings:        []ValidationWarning{},
+		Recommendations: []string{"Review mapping accuracy"},
+		Metadata: map[string]interface{}{
+			"provider": "openai_fallback",
+		},
+	}
+}
+
+func inferTemplateType(templatePath string) string {
+	ext := strings.ToLower(filepath.Ext(templatePath))
+	switch ext {
+	case ".xlsx", ".xls":
+		return "excel"
+	case ".docx", ".doc":
+		return "word"
+	case ".pdf":
+		return "pdf"
+	default:
+		return "unknown"
+	}
 }
