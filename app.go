@@ -4315,16 +4315,38 @@ func (a *App) PopulateTemplateWithData(templateId string, fieldMappings []map[st
 		return nil, fmt.Errorf("template services not initialized")
 	}
 
-	// Find template by ID
+	fmt.Printf("DEBUG PopulateTemplateWithData: templateId='%s', dealName='%s', fieldMappings count=%d\n", templateId, dealName, len(fieldMappings))
+
+	// Find template by ID or try to find it directly in analysis folder
+	var analysisTemplatePath string
 	templateInfo, err := a.templateDiscovery.GetTemplateByID(templateId)
 	if err != nil {
-		return nil, fmt.Errorf("template not found: %w", err)
-	}
+		fmt.Printf("DEBUG: Template not found by ID, trying direct path approach: %v\n", err)
 
-	// Copy template to analysis folder
-	analysisTemplatePath, err := a.templateManager.CopyTemplateToAnalysis(templateInfo.Path, dealName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to copy template to analysis folder: %w", err)
+		// Try to find the template in the analysis folder directly
+		dealsPath := a.configService.GetDealsPath()
+		analysisPath := filepath.Join(dealsPath, dealName, "analysis")
+
+		// Look for the template file
+		if files, err := os.ReadDir(analysisPath); err == nil {
+			for _, file := range files {
+				if strings.Contains(strings.ToLower(file.Name()), "deal_summary") {
+					analysisTemplatePath = filepath.Join(analysisPath, file.Name())
+					fmt.Printf("DEBUG: Found template at: %s\n", analysisTemplatePath)
+					break
+				}
+			}
+		}
+
+		if analysisTemplatePath == "" {
+			return nil, fmt.Errorf("template not found: %w", err)
+		}
+	} else {
+		// Copy template to analysis folder
+		analysisTemplatePath, err = a.templateManager.CopyTemplateToAnalysis(templateInfo.Path, dealName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to copy template to analysis folder: %w", err)
+		}
 	}
 
 	// Convert field mappings to MappedData format
@@ -4367,10 +4389,21 @@ func (a *App) PopulateTemplateWithData(templateId string, fieldMappings []map[st
 	}
 
 	// Populate the template
+	fmt.Printf("DEBUG: About to populate template at: %s\n", analysisTemplatePath)
+	fmt.Printf("DEBUG: Mapped data fields: %v\n", func() []string {
+		keys := make([]string, 0, len(mappedData.Fields))
+		for k := range mappedData.Fields {
+			keys = append(keys, k)
+		}
+		return keys
+	}())
+
 	err = a.templatePopulator.PopulateTemplate(analysisTemplatePath, mappedData, analysisTemplatePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to populate template: %w", err)
 	}
+
+	fmt.Printf("DEBUG: Template population completed successfully\n")
 
 	// Validate formulas if requested
 	var formulaValidation map[string]interface{}
@@ -5019,4 +5052,92 @@ func (a *App) extractFallbackFinancialData(filePath string) map[string]interface
 	}
 
 	return nil
+}
+
+// TestDirectTemplatePopulationInApp tests template population directly with known field mappings
+func (a *App) TestDirectTemplatePopulationInApp() {
+	// Test field mappings with actual data
+	fieldMappings := []map[string]interface{}{
+		{
+			"templateField": "Deal Name",
+			"documentField": "deal_name",
+			"value":         "AquaFlow Technologies Acquisition",
+			"confidence":    0.9,
+			"mappingType":   "direct_match",
+			"dataType":      "text",
+		},
+		{
+			"templateField": "Target Company",
+			"documentField": "company_name",
+			"value":         "AquaFlow Technologies",
+			"confidence":    0.9,
+			"mappingType":   "direct_match",
+			"dataType":      "text",
+		},
+		{
+			"templateField": "Deal Value",
+			"documentField": "deal_value",
+			"value":         "$125,000,000",
+			"confidence":    0.8,
+			"mappingType":   "fuzzy_match",
+			"dataType":      "currency",
+		},
+		{
+			"templateField": "Industry",
+			"documentField": "industry",
+			"value":         "Water Technology",
+			"confidence":    0.8,
+			"mappingType":   "direct_match",
+			"dataType":      "text",
+		},
+		{
+			"templateField": "Revenue (Last Year)",
+			"documentField": "revenue",
+			"value":         "$125,000,000",
+			"confidence":    0.8,
+			"mappingType":   "direct_match",
+			"dataType":      "currency",
+		},
+		{
+			"templateField": "EBITDA (Last Year)",
+			"documentField": "ebitda",
+			"value":         "$25,000,000",
+			"confidence":    0.8,
+			"mappingType":   "direct_match",
+			"dataType":      "currency",
+		},
+	}
+
+	// Test with deal_summary.md
+	dealName := "Project Plumb"
+	templateId := "deal_summary.md"
+
+	fmt.Printf("TESTING: Template population with %d field mappings...\n", len(fieldMappings))
+
+	result, err := a.PopulateTemplateWithData(templateId, fieldMappings, true, dealName)
+	if err != nil {
+		fmt.Printf("ERROR: Template population failed: %v\n", err)
+		return
+	}
+
+	fmt.Printf("SUCCESS: Template population completed!\n")
+	fmt.Printf("Result: %+v\n", result)
+
+	// Check if the file was actually populated
+	dealsPath := a.configService.GetDealsPath()
+	analysisPath := filepath.Join(dealsPath, dealName, "analysis", "deal_summary.md")
+
+	if _, err := os.Stat(analysisPath); err == nil {
+		fmt.Printf("Template file exists at: %s\n", analysisPath)
+
+		// Read the file content to verify population
+		content, err := os.ReadFile(analysisPath)
+		if err == nil {
+			fmt.Printf("=== POPULATED TEMPLATE CONTENT ===\n")
+			fmt.Printf("%s\n", string(content))
+			fmt.Printf("=== END TEMPLATE CONTENT ===\n")
+		}
+	} else {
+		fmt.Printf("Template file not found at: %s\n", analysisPath)
+	}
 }

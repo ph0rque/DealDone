@@ -195,8 +195,56 @@ func (tp *TemplatePopulator) populateTextTemplate(templatePath string, templateD
 			}
 
 			for _, placeholder := range placeholderFormats {
-				populatedContent = strings.ReplaceAll(populatedContent, placeholder, valueStr)
+				if strings.Contains(populatedContent, placeholder) {
+					fmt.Printf("DEBUG: Replacing placeholder '%s' with value '%s' for field '%s'\n", placeholder, valueStr, fieldName)
+					populatedContent = strings.ReplaceAll(populatedContent, placeholder, valueStr)
+				}
 			}
+		}
+	}
+
+	// Additional direct replacements for common cases that might be missed
+	directReplacements := map[string]string{
+		"[To be filled]":                  "",
+		"[Amount]":                        "",
+		"[Name]":                          "",
+		"[Date]":                          "",
+		"[Industry]":                      "",
+		"[Year]":                          "",
+		"[Location]":                      "",
+		"[Number]":                        "",
+		"[URL]":                           "",
+		"[%]":                             "",
+		"[Type]":                          "",
+		"[Acquisition/Merger/Investment]": "",
+	}
+
+	// Try to fill remaining placeholders with appropriate values from our field mappings
+	for fieldName, mappedField := range mappedData.Fields {
+		valueStr := fmt.Sprintf("%v", mappedField.Value)
+		fieldLower := strings.ToLower(fieldName)
+
+		if strings.Contains(fieldLower, "deal") && strings.Contains(fieldLower, "name") {
+			directReplacements["[To be filled]"] = valueStr
+		} else if strings.Contains(fieldLower, "company") || strings.Contains(fieldLower, "target") {
+			directReplacements["[Name]"] = valueStr
+		} else if strings.Contains(fieldLower, "type") {
+			directReplacements["[Acquisition/Merger/Investment]"] = valueStr
+			directReplacements["[Type]"] = valueStr
+		} else if strings.Contains(fieldLower, "value") || strings.Contains(fieldLower, "price") || strings.Contains(fieldLower, "revenue") || strings.Contains(fieldLower, "ebitda") {
+			directReplacements["[Amount]"] = valueStr
+		} else if strings.Contains(fieldLower, "industry") {
+			directReplacements["[Industry]"] = valueStr
+		} else if strings.Contains(fieldLower, "date") {
+			directReplacements["[Date]"] = valueStr
+		}
+	}
+
+	// Apply direct replacements
+	for placeholder, replacement := range directReplacements {
+		if replacement != "" && strings.Contains(populatedContent, placeholder) {
+			fmt.Printf("DEBUG: Direct replacement: '%s' -> '%s'\n", placeholder, replacement)
+			populatedContent = strings.ReplaceAll(populatedContent, placeholder, replacement)
 		}
 	}
 
@@ -680,7 +728,7 @@ func (tp *TemplatePopulator) validateTextTemplate(filePath string, originalFormu
 func (tp *TemplatePopulator) getPlaceholderMappings(fieldName string) []string {
 	fieldLower := strings.ToLower(fieldName)
 
-	// Common mappings from metadata field names to template placeholders
+	// Enhanced mappings from metadata field names to template placeholders
 	mappings := map[string][]string{
 		"deal name":        {"To be filled", "Deal Name", "deal name"},
 		"target company":   {"To be filled", "Target Company", "Company Name", "Name", "target company"},
@@ -698,6 +746,16 @@ func (tp *TemplatePopulator) getPlaceholderMappings(fieldName string) []string {
 		"headquarters":     {"Location", "Headquarters", "HQ", "Office", "headquarters"},
 		"website":          {"URL", "Website", "Web", "website"},
 		"deal type":        {"Deal Type", "Transaction Type", "Type", "deal type"},
+		// Additional specific field mappings for our template
+		"deal_name":         {"To be filled", "Deal Name"},
+		"target_company":    {"To be filled", "Name", "Company Name"},
+		"deal_type":         {"Acquisition/Merger/Investment", "Type"},
+		"deal_value":        {"Amount", "Value"},
+		"company_name":      {"Name", "Company Name"},
+		"revenue_last_year": {"Amount"},
+		"ebitda_last_year":  {"Amount"},
+		"ebitda_margin":     {"%"},
+		"revenue_growth":    {"%"},
 	}
 
 	// Get specific mappings for this field
@@ -706,16 +764,39 @@ func (tp *TemplatePopulator) getPlaceholderMappings(fieldName string) []string {
 	}
 
 	// Default mappings - try the field name itself and common generic placeholders
-	return []string{
+	placeholders := []string{
 		fieldName,                  // Exact match
 		strings.Title(fieldName),   // Title case
 		strings.ToLower(fieldName), // Lower case
-		"To be filled",             // Generic placeholder
-		"Amount",                   // For currency fields
-		"Name",                     // For name fields
-		"Date",                     // For date fields
-		"Number",                   // For numeric fields
 	}
+
+	// Add context-specific placeholders
+	if strings.Contains(fieldLower, "name") || strings.Contains(fieldLower, "company") {
+		placeholders = append(placeholders, "To be filled", "Name", "Company Name")
+	} else if strings.Contains(fieldLower, "value") || strings.Contains(fieldLower, "price") || strings.Contains(fieldLower, "revenue") || strings.Contains(fieldLower, "ebitda") || strings.Contains(fieldLower, "income") {
+		placeholders = append(placeholders, "Amount", "Value", "Price")
+	} else if strings.Contains(fieldLower, "date") {
+		placeholders = append(placeholders, "Date")
+	} else if strings.Contains(fieldLower, "type") {
+		placeholders = append(placeholders, "Type", "Acquisition/Merger/Investment")
+	} else if strings.Contains(fieldLower, "industry") {
+		placeholders = append(placeholders, "Industry")
+	} else if strings.Contains(fieldLower, "year") || strings.Contains(fieldLower, "founded") {
+		placeholders = append(placeholders, "Year")
+	} else if strings.Contains(fieldLower, "location") || strings.Contains(fieldLower, "headquarters") {
+		placeholders = append(placeholders, "Location")
+	} else if strings.Contains(fieldLower, "employees") || strings.Contains(fieldLower, "number") {
+		placeholders = append(placeholders, "Number")
+	} else if strings.Contains(fieldLower, "website") || strings.Contains(fieldLower, "url") {
+		placeholders = append(placeholders, "URL")
+	} else if strings.Contains(fieldLower, "margin") || strings.Contains(fieldLower, "growth") || strings.Contains(fieldLower, "percent") {
+		placeholders = append(placeholders, "%")
+	}
+
+	// Always try "To be filled" as a last resort
+	placeholders = append(placeholders, "To be filled")
+
+	return placeholders
 }
 
 // EnhancedFormulaPreservation contains advanced formula preservation information

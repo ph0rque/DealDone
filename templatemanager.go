@@ -140,9 +140,14 @@ func (tm *TemplateManager) CopyTemplateToAnalysis(templatePath, dealName string)
 		return "", fmt.Errorf("failed to create analysis folder: %w", err)
 	}
 
-	// Get template filename
-	templateName := filepath.Base(templatePath)
-	destPath := filepath.Join(analysisPath, templateName)
+	// Generate appropriate filename for analysis
+	originalName := filepath.Base(templatePath)
+	ext := filepath.Ext(originalName)
+	baseName := strings.TrimSuffix(originalName, ext)
+
+	// Convert template name to analysis filename
+	analysisName := tm.generateAnalysisFilename(baseName, ext)
+	destPath := filepath.Join(analysisPath, analysisName)
 
 	// Check if file already exists - if so, skip copying to avoid duplicates
 	if _, err := os.Stat(destPath); err == nil {
@@ -168,6 +173,54 @@ func (tm *TemplateManager) CopyTemplateToAnalysis(templatePath, dealName string)
 	}
 
 	return destPath, nil
+}
+
+// generateAnalysisFilename converts template names to appropriate analysis filenames
+func (tm *TemplateManager) generateAnalysisFilename(baseName, ext string) string {
+	fmt.Printf("DEBUG generateAnalysisFilename: baseName='%s', ext='%s'\n", baseName, ext)
+
+	// Convert to lowercase
+	name := strings.ToLower(baseName)
+	fmt.Printf("DEBUG after lowercase: '%s'\n", name)
+
+	// Remove "template" from the name
+	name = strings.ReplaceAll(name, "_template", "")
+	name = strings.ReplaceAll(name, "-template", "")
+	name = strings.ReplaceAll(name, "template_", "")
+	name = strings.ReplaceAll(name, "template-", "")
+	name = strings.ReplaceAll(name, "template", "")
+	fmt.Printf("DEBUG after removing template: '%s'\n", name)
+
+	// Replace spaces and special characters with underscores
+	name = strings.ReplaceAll(name, " ", "_")
+	name = strings.ReplaceAll(name, "-", "_")
+	fmt.Printf("DEBUG after replacing chars: '%s'\n", name)
+
+	// Remove duplicate underscores
+	for strings.Contains(name, "__") {
+		name = strings.ReplaceAll(name, "__", "_")
+	}
+	fmt.Printf("DEBUG after removing duplicate underscores: '%s'\n", name)
+
+	// Trim leading/trailing underscores
+	name = strings.Trim(name, "_")
+	fmt.Printf("DEBUG after trimming underscores: '%s'\n", name)
+
+	// Handle specific template names
+	switch name {
+	case "deal_summary":
+		fmt.Printf("DEBUG matched deal_summary case\n")
+		return "deal_summary" + ext
+	case "financial_model":
+		fmt.Printf("DEBUG matched financial_model case\n")
+		return "financial_model" + ext
+	case "due_diligence_checklist":
+		fmt.Printf("DEBUG matched due_diligence_checklist case\n")
+		return "due_diligence_checklist" + ext
+	default:
+		fmt.Printf("DEBUG using default case: '%s'\n", name)
+		return name + ext
+	}
 }
 
 // GetTemplateCount returns the number of templates available
