@@ -6,21 +6,25 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/xuri/excelize/v2"
 )
 
 // TemplatePopulator handles populating templates with mapped data while preserving formulas
 type TemplatePopulator struct {
-	templateParser *TemplateParser
+	templateParser        *TemplateParser
+	professionalFormatter *ProfessionalFormatter
 }
 
 // NewTemplatePopulator creates a new template populator
 func NewTemplatePopulator(templateParser *TemplateParser) *TemplatePopulator {
 	return &TemplatePopulator{
-		templateParser: templateParser,
+		templateParser:        templateParser,
+		professionalFormatter: NewProfessionalFormatter(),
 	}
 }
 
@@ -130,8 +134,15 @@ func (tp *TemplatePopulator) updateCSVRecords(records [][]string, templateData *
 
 			// Check if we have mapped data for this field
 			if mappedField, exists := mappedData.Fields[header]; exists {
-				// Update with mapped value
-				updated[rowIdx][colIdx] = tp.formatValue(mappedField.Value)
+				// Create context for professional formatting
+				context := FormattingContext{
+					FieldName:    header,
+					FieldType:    "",
+					TemplateType: "csv",
+					Metadata:     make(map[string]interface{}),
+				}
+				// Update with professionally formatted value
+				updated[rowIdx][colIdx] = tp.formatValueWithContext(mappedField.Value, context)
 			}
 		}
 	}
@@ -163,7 +174,14 @@ func (tp *TemplatePopulator) populateTextTemplate(templatePath string, templateD
 
 	// Replace field placeholders with actual values
 	for fieldName, mappedField := range mappedData.Fields {
-		valueStr := tp.formatValue(mappedField.Value)
+		// Create context for professional formatting
+		context := FormattingContext{
+			FieldName:    fieldName,
+			FieldType:    "",
+			TemplateType: "text",
+			Metadata:     make(map[string]interface{}),
+		}
+		valueStr := tp.formatValueWithContext(mappedField.Value, context)
 
 		// Create mapping from metadata field names to likely placeholders
 		placeholderMappings := tp.getPlaceholderMappings(fieldName)
@@ -281,8 +299,15 @@ func (tp *TemplatePopulator) populateExcelSheet(f *excelize.File, sheet SheetDat
 			}
 
 			if found {
-				// Set the cell value
-				value := tp.formatValueForExcel(mappedField.Value)
+				// Create context for professional formatting
+				context := FormattingContext{
+					FieldName:    header,
+					FieldType:    "",
+					TemplateType: "excel",
+					Metadata:     make(map[string]interface{}),
+				}
+				// Set the cell value with professional formatting
+				value := tp.formatValueForExcelWithContext(mappedField.Value, context)
 				if err := f.SetCellValue(sheet.Name, cellName, value); err != nil {
 					return fmt.Errorf("failed to set cell value: %w", err)
 				}
@@ -319,40 +344,89 @@ func (tp *TemplatePopulator) isHeaderRow(row []string, expectedHeaders []string)
 	return float64(matches)/float64(len(expectedHeaders)) >= 0.5
 }
 
-// formatValue formats a value for CSV output
+// formatValue formats a value for CSV output using professional formatting
 func (tp *TemplatePopulator) formatValue(value interface{}) string {
-	switch v := value.(type) {
-	case float64:
-		// Check if it's a whole number
-		if v == float64(int64(v)) {
-			return fmt.Sprintf("%d", int64(v))
-		}
-		return fmt.Sprintf("%.2f", v)
-	case string:
-		return v
-	default:
-		return fmt.Sprintf("%v", v)
-	}
+	return tp.formatValueWithContext(value, FormattingContext{
+		FieldName:    "",
+		FieldType:    "",
+		TemplateType: "csv",
+		Metadata:     make(map[string]interface{}),
+	})
 }
 
-// formatValueForExcel formats a value for Excel
-func (tp *TemplatePopulator) formatValueForExcel(value interface{}) interface{} {
-	// Excel can handle native types directly
-	switch v := value.(type) {
-	case float64, float32, int, int32, int64:
-		return v
-	case string:
-		// Check if it's a formula
-		if strings.HasPrefix(v, "=") {
+// formatValueWithContext formats a value with context information
+func (tp *TemplatePopulator) formatValueWithContext(value interface{}, context FormattingContext) string {
+	result, err := tp.professionalFormatter.FormatValue(value, context)
+	if err != nil {
+		// Fallback to simple formatting
+		switch v := value.(type) {
+		case float64:
+			// Check if it's a whole number
+			if v == float64(int64(v)) {
+				return fmt.Sprintf("%d", int64(v))
+			}
+			return fmt.Sprintf("%.2f", v)
+		case string:
 			return v
+		default:
+			return fmt.Sprintf("%v", v)
 		}
-		// Check if it's a number string
-		if num, err := strconv.ParseFloat(v, 64); err == nil {
+	}
+	return result.DisplayValue
+}
+
+// formatValueForExcel formats a value for Excel using professional formatting
+func (tp *TemplatePopulator) formatValueForExcel(value interface{}) interface{} {
+	return tp.formatValueForExcelWithContext(value, FormattingContext{
+		FieldName:    "",
+		FieldType:    "",
+		TemplateType: "excel",
+		Metadata:     make(map[string]interface{}),
+	})
+}
+
+// formatValueForExcelWithContext formats a value for Excel with context information
+func (tp *TemplatePopulator) formatValueForExcelWithContext(value interface{}, context FormattingContext) interface{} {
+	// Check if it's a formula first
+	if str, ok := value.(string); ok && strings.HasPrefix(str, "=") {
+		return str
+	}
+
+	// Use professional formatting
+	result, err := tp.professionalFormatter.FormatValue(value, context)
+	if err != nil {
+		// Fallback to Excel native types
+		switch v := value.(type) {
+		case float64, float32, int, int32, int64:
+			return v
+		case string:
+			// Check if it's a number string
+			if num, err := strconv.ParseFloat(v, 64); err == nil {
+				return num
+			}
+			return v
+		default:
+			return fmt.Sprintf("%v", v)
+		}
+	}
+
+	// For Excel, return the formatted value or display value based on type
+	switch result.FormatType {
+	case "currency", "number":
+		// Return numeric value for Excel to handle with cell formatting
+		if num, ok := result.FormattedValue.(float64); ok {
 			return num
 		}
-		return v
+		return result.DisplayValue
+	case "date", "date_financial":
+		// Return time value for Excel to handle with cell formatting
+		if t, ok := result.FormattedValue.(time.Time); ok {
+			return t
+		}
+		return result.DisplayValue
 	default:
-		return fmt.Sprintf("%v", v)
+		// Return display value for text
+		return result.DisplayValue
 	}
 }
 
@@ -642,4 +716,215 @@ func (tp *TemplatePopulator) getPlaceholderMappings(fieldName string) []string {
 		"Date",                     // For date fields
 		"Number",                   // For numeric fields
 	}
+}
+
+// EnhancedFormulaPreservation contains advanced formula preservation information
+type EnhancedFormulaPreservation struct {
+	*FormulaPreservation
+	UpdatedReferences map[string]string `json:"updatedReferences"`
+	ValidationResults map[string]bool   `json:"validationResults"`
+	PreservationStats FormulaStats      `json:"preservationStats"`
+	QualityScore      float64           `json:"qualityScore"`
+}
+
+// FormulaStats contains statistics about formula preservation
+type FormulaStats struct {
+	TotalFormulas     int `json:"totalFormulas"`
+	PreservedFormulas int `json:"preservedFormulas"`
+	UpdatedReferences int `json:"updatedReferences"`
+	BrokenFormulas    int `json:"brokenFormulas"`
+	ValidationsPassed int `json:"validationsPassed"`
+	ValidationsFailed int `json:"validationsFailed"`
+}
+
+// EnhanceFormulaPreservation creates an enhanced formula preservation with validation
+func (tp *TemplatePopulator) EnhanceFormulaPreservation(templatePath string, mappedData *MappedData) (*EnhancedFormulaPreservation, error) {
+	// Get basic formula preservation
+	basicPreservation, err := tp.PreserveFormulas(templatePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to analyze formulas: %w", err)
+	}
+
+	enhanced := &EnhancedFormulaPreservation{
+		FormulaPreservation: basicPreservation,
+		UpdatedReferences:   make(map[string]string),
+		ValidationResults:   make(map[string]bool),
+		PreservationStats: FormulaStats{
+			TotalFormulas: basicPreservation.TotalFormulas,
+		},
+	}
+
+	// Analyze formula dependencies and update requirements
+	for _, formulaInfo := range basicPreservation.FormulaCells {
+		// Check if formula references need updating based on mapped data
+		updatedFormula, needsUpdate := tp.analyzeFormulaReferences(formulaInfo.Formula, mappedData)
+		if needsUpdate {
+			enhanced.UpdatedReferences[formulaInfo.Cell] = updatedFormula
+			enhanced.PreservationStats.UpdatedReferences++
+		}
+
+		// Validate formula syntax and dependencies
+		isValid := tp.validateFormulaSyntax(formulaInfo.Formula)
+		enhanced.ValidationResults[formulaInfo.Cell] = isValid
+
+		if isValid {
+			enhanced.PreservationStats.ValidationsPassed++
+			enhanced.PreservationStats.PreservedFormulas++
+		} else {
+			enhanced.PreservationStats.ValidationsFailed++
+			enhanced.PreservationStats.BrokenFormulas++
+		}
+	}
+
+	// Calculate quality score
+	if enhanced.PreservationStats.TotalFormulas > 0 {
+		preservationRate := float64(enhanced.PreservationStats.PreservedFormulas) / float64(enhanced.PreservationStats.TotalFormulas)
+		validationRate := float64(enhanced.PreservationStats.ValidationsPassed) / float64(enhanced.PreservationStats.TotalFormulas)
+		enhanced.QualityScore = (preservationRate * 0.7) + (validationRate * 0.3)
+	} else {
+		enhanced.QualityScore = 1.0 // No formulas to preserve
+	}
+
+	return enhanced, nil
+}
+
+// analyzeFormulaReferences checks if formula references need updating
+func (tp *TemplatePopulator) analyzeFormulaReferences(formula string, mappedData *MappedData) (string, bool) {
+	// Remove the leading = sign for analysis
+	formulaContent := strings.TrimPrefix(formula, "=")
+	needsUpdate := false
+
+	// Look for cell references that might need updating
+	cellRefPattern := regexp.MustCompile(`[A-Z]+[0-9]+`)
+	matches := cellRefPattern.FindAllString(formulaContent, -1)
+
+	for _, cellRef := range matches {
+		// Check if this cell reference corresponds to a field that was updated
+		// This is a simplified analysis - in practice, you'd need more sophisticated logic
+		for fieldName := range mappedData.Fields {
+			// If the field name suggests it might affect this cell reference
+			if tp.mightAffectCellReference(fieldName, cellRef) {
+				// For now, we don't automatically update references
+				// but we flag that the formula might need attention
+				needsUpdate = true
+				break
+			}
+		}
+	}
+
+	return "=" + formulaContent, needsUpdate
+}
+
+// mightAffectCellReference determines if a field might affect a cell reference
+func (tp *TemplatePopulator) mightAffectCellReference(fieldName, cellRef string) bool {
+	// This is a simplified heuristic - in practice, you'd need template-specific logic
+	fieldLower := strings.ToLower(fieldName)
+
+	// If it's a financial field and the cell reference is in a typical calculation area
+	if strings.Contains(fieldLower, "revenue") || strings.Contains(fieldLower, "ebitda") ||
+		strings.Contains(fieldLower, "value") || strings.Contains(fieldLower, "amount") {
+		return true
+	}
+
+	return false
+}
+
+// validateFormulaSyntax performs basic formula syntax validation
+func (tp *TemplatePopulator) validateFormulaSyntax(formula string) bool {
+	// Remove the leading = sign
+	formulaContent := strings.TrimPrefix(formula, "=")
+
+	// Basic syntax checks
+	if formulaContent == "" {
+		return false
+	}
+
+	// Check for balanced parentheses
+	if !tp.hasBalancedParentheses(formulaContent) {
+		return false
+	}
+
+	// Check for valid function names (basic check)
+	if strings.Contains(formulaContent, "(") {
+		// Extract function names and validate them
+		funcPattern := regexp.MustCompile(`[A-Z]+\(`)
+		functions := funcPattern.FindAllString(formulaContent, -1)
+
+		for _, fn := range functions {
+			funcName := strings.TrimSuffix(fn, "(")
+			if !tp.isValidExcelFunction(funcName) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+// hasBalancedParentheses checks if parentheses are balanced in a formula
+func (tp *TemplatePopulator) hasBalancedParentheses(formula string) bool {
+	count := 0
+	for _, char := range formula {
+		switch char {
+		case '(':
+			count++
+		case ')':
+			count--
+			if count < 0 {
+				return false
+			}
+		}
+	}
+	return count == 0
+}
+
+// isValidExcelFunction checks if a function name is a valid Excel function
+func (tp *TemplatePopulator) isValidExcelFunction(funcName string) bool {
+	validFunctions := map[string]bool{
+		"SUM": true, "AVERAGE": true, "COUNT": true, "MIN": true, "MAX": true,
+		"IF": true, "AND": true, "OR": true, "NOT": true,
+		"VLOOKUP": true, "HLOOKUP": true, "INDEX": true, "MATCH": true,
+		"TODAY": true, "NOW": true, "DATE": true, "TIME": true,
+		"CONCATENATE": true, "LEFT": true, "RIGHT": true, "MID": true,
+		"NPV": true, "IRR": true, "PMT": true, "PV": true, "FV": true,
+		"ROUND": true, "ROUNDUP": true, "ROUNDDOWN": true,
+		"ABS": true, "SQRT": true, "POWER": true, "EXP": true, "LN": true,
+		"COUNTA": true, "COUNTIF": true, "SUMIF": true, "AVERAGEIF": true,
+	}
+
+	return validFunctions[strings.ToUpper(funcName)]
+}
+
+// PopulateTemplateWithEnhancedFormulas populates a template with enhanced formula preservation
+func (tp *TemplatePopulator) PopulateTemplateWithEnhancedFormulas(templatePath string, mappedData *MappedData, outputPath string) (*EnhancedFormulaPreservation, error) {
+	// First, analyze formulas
+	enhanced, err := tp.EnhanceFormulaPreservation(templatePath, mappedData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to enhance formula preservation: %w", err)
+	}
+
+	// Populate the template normally
+	err = tp.PopulateTemplate(templatePath, mappedData, outputPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to populate template: %w", err)
+	}
+
+	// Validate that formulas were preserved correctly
+	err = tp.ValidatePopulatedTemplate(outputPath, enhanced.FormulaPreservation)
+	if err != nil {
+		// Update preservation stats
+		enhanced.PreservationStats.BrokenFormulas++
+		enhanced.PreservationStats.PreservedFormulas--
+
+		// Recalculate quality score
+		if enhanced.PreservationStats.TotalFormulas > 0 {
+			preservationRate := float64(enhanced.PreservationStats.PreservedFormulas) / float64(enhanced.PreservationStats.TotalFormulas)
+			validationRate := float64(enhanced.PreservationStats.ValidationsPassed) / float64(enhanced.PreservationStats.TotalFormulas)
+			enhanced.QualityScore = (preservationRate * 0.7) + (validationRate * 0.3)
+		}
+
+		return enhanced, fmt.Errorf("formula preservation validation failed: %w", err)
+	}
+
+	return enhanced, nil
 }
