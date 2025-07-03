@@ -58,7 +58,7 @@ func (tp *TemplateParser) ParseTemplate(templatePath string) (*TemplateData, err
 		return tp.parseCSVTemplate(templatePath)
 	case ".xlsx", ".xls":
 		return tp.parseExcelTemplate(templatePath)
-	case ".txt":
+	case ".txt", ".md":
 		return tp.parseTextTemplate(templatePath)
 	default:
 		return nil, fmt.Errorf("unsupported template format: %s", ext)

@@ -98,6 +98,29 @@ func (tp *TemplatePopulator) updateCSVRecords(records [][]string, templateData *
 		copy(updated[i], records[i])
 	}
 
+	// First, handle placeholder replacement in all cells
+	for rowIdx := range updated {
+		for colIdx := range updated[rowIdx] {
+			cellValue := updated[rowIdx][colIdx]
+
+			// Replace placeholders in CSV cells
+			if strings.Contains(cellValue, "[To be filled]") {
+				// Find a suitable replacement value
+				for fieldName, mappedField := range mappedData.Fields {
+					fieldLower := strings.ToLower(fieldName)
+					if strings.Contains(fieldLower, "company") || strings.Contains(fieldLower, "name") || strings.Contains(fieldLower, "deal") {
+						valueStr := fmt.Sprintf("%v", mappedField.Value)
+						if valueStr != "" {
+							updated[rowIdx][colIdx] = strings.ReplaceAll(cellValue, "[To be filled]", valueStr)
+							fmt.Printf("DEBUG: CSV placeholder replacement: '[To be filled]' -> '%s' in cell [%d,%d]\n", valueStr, rowIdx, colIdx)
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// Find header row (usually first row)
 	headerRow := -1
 	for i, record := range records {
@@ -108,7 +131,7 @@ func (tp *TemplatePopulator) updateCSVRecords(records [][]string, templateData *
 	}
 
 	if headerRow == -1 {
-		return updated // No headers found, return as-is
+		return updated // No headers found, return updated with placeholder replacements
 	}
 
 	// Map column indices to field names
@@ -117,7 +140,7 @@ func (tp *TemplatePopulator) updateCSVRecords(records [][]string, templateData *
 		columnMap[colIdx] = header
 	}
 
-	// Update data rows
+	// Update data rows with mapped field data
 	for rowIdx := headerRow + 1; rowIdx < len(updated); rowIdx++ {
 		for colIdx, header := range columnMap {
 			if colIdx >= len(updated[rowIdx]) {
@@ -172,7 +195,7 @@ func (tp *TemplatePopulator) populateTextTemplate(templatePath string, templateD
 	// Replace placeholders with mapped data
 	populatedContent := originalContent
 
-	// Replace field placeholders with actual values
+	// First, try the standard field mapping approach
 	for fieldName, mappedField := range mappedData.Fields {
 		// Create context for professional formatting
 		context := FormattingContext{
@@ -203,48 +226,136 @@ func (tp *TemplatePopulator) populateTextTemplate(templatePath string, templateD
 		}
 	}
 
-	// Additional direct replacements for common cases that might be missed
-	directReplacements := map[string]string{
-		"[To be filled]":                  "",
-		"[Amount]":                        "",
-		"[Name]":                          "",
-		"[Date]":                          "",
-		"[Industry]":                      "",
-		"[Year]":                          "",
-		"[Location]":                      "",
-		"[Number]":                        "",
-		"[URL]":                           "",
-		"[%]":                             "",
-		"[Type]":                          "",
-		"[Acquisition/Merger/Investment]": "",
-	}
+	// Enhanced direct replacement logic - more comprehensive mapping
+	// Create a comprehensive mapping of placeholders to values
+	placeholderValues := make(map[string]string)
 
-	// Try to fill remaining placeholders with appropriate values from our field mappings
+	// Initialize with empty strings to handle missing values gracefully
+	placeholderValues["[To be filled]"] = ""
+	placeholderValues["[Amount]"] = ""
+	placeholderValues["[Name]"] = ""
+	placeholderValues["[Date]"] = ""
+	placeholderValues["[Industry]"] = ""
+	placeholderValues["[Year]"] = ""
+	placeholderValues["[Location]"] = ""
+	placeholderValues["[Number]"] = ""
+	placeholderValues["[URL]"] = ""
+	placeholderValues["[%]"] = ""
+	placeholderValues["[Type]"] = ""
+	placeholderValues["[Acquisition/Merger/Investment]"] = ""
+
+	// Map field values to the appropriate placeholders based on field names and content
 	for fieldName, mappedField := range mappedData.Fields {
 		valueStr := fmt.Sprintf("%v", mappedField.Value)
 		fieldLower := strings.ToLower(fieldName)
 
-		if strings.Contains(fieldLower, "deal") && strings.Contains(fieldLower, "name") {
-			directReplacements["[To be filled]"] = valueStr
-		} else if strings.Contains(fieldLower, "company") || strings.Contains(fieldLower, "target") {
-			directReplacements["[Name]"] = valueStr
-		} else if strings.Contains(fieldLower, "type") {
-			directReplacements["[Acquisition/Merger/Investment]"] = valueStr
-			directReplacements["[Type]"] = valueStr
-		} else if strings.Contains(fieldLower, "value") || strings.Contains(fieldLower, "price") || strings.Contains(fieldLower, "revenue") || strings.Contains(fieldLower, "ebitda") {
-			directReplacements["[Amount]"] = valueStr
-		} else if strings.Contains(fieldLower, "industry") {
-			directReplacements["[Industry]"] = valueStr
-		} else if strings.Contains(fieldLower, "date") {
-			directReplacements["[Date]"] = valueStr
+		// Enhanced field mapping logic
+		switch {
+		// Deal name and company name mapping
+		case strings.Contains(fieldLower, "deal") && strings.Contains(fieldLower, "name"),
+			strings.Contains(fieldLower, "deal_name"):
+			placeholderValues["[To be filled]"] = valueStr
+
+		case strings.Contains(fieldLower, "company") && strings.Contains(fieldLower, "name"),
+			strings.Contains(fieldLower, "target") && strings.Contains(fieldLower, "company"),
+			strings.Contains(fieldLower, "company_name"),
+			strings.Contains(fieldLower, "target_company"):
+			if placeholderValues["[To be filled]"] == "" {
+				placeholderValues["[To be filled]"] = valueStr
+			}
+			placeholderValues["[Name]"] = valueStr
+
+		// Deal type mapping
+		case strings.Contains(fieldLower, "deal") && strings.Contains(fieldLower, "type"),
+			strings.Contains(fieldLower, "deal_type"),
+			strings.Contains(fieldLower, "transaction") && strings.Contains(fieldLower, "type"):
+			placeholderValues["[Acquisition/Merger/Investment]"] = valueStr
+			placeholderValues["[Type]"] = valueStr
+
+		// Financial values mapping
+		case strings.Contains(fieldLower, "deal") && strings.Contains(fieldLower, "value"),
+			strings.Contains(fieldLower, "deal_value"),
+			strings.Contains(fieldLower, "purchase") && strings.Contains(fieldLower, "price"),
+			strings.Contains(fieldLower, "enterprise") && strings.Contains(fieldLower, "value"),
+			strings.Contains(fieldLower, "transaction") && strings.Contains(fieldLower, "value"):
+			placeholderValues["[Amount]"] = valueStr
+
+		case strings.Contains(fieldLower, "revenue"),
+			strings.Contains(fieldLower, "ebitda"),
+			strings.Contains(fieldLower, "income"),
+			strings.Contains(fieldLower, "price"),
+			strings.Contains(fieldLower, "value") && !strings.Contains(fieldLower, "deal"):
+			if placeholderValues["[Amount]"] == "" {
+				placeholderValues["[Amount]"] = valueStr
+			}
+
+		// Industry mapping
+		case strings.Contains(fieldLower, "industry"),
+			strings.Contains(fieldLower, "sector"),
+			strings.Contains(fieldLower, "business"):
+			placeholderValues["[Industry]"] = valueStr
+
+		// Date mapping
+		case strings.Contains(fieldLower, "date"),
+			strings.Contains(fieldLower, "transaction") && strings.Contains(fieldLower, "date"),
+			strings.Contains(fieldLower, "deal") && strings.Contains(fieldLower, "date"):
+			placeholderValues["[Date]"] = valueStr
+
+		// Year mapping
+		case strings.Contains(fieldLower, "year"),
+			strings.Contains(fieldLower, "founded"),
+			strings.Contains(fieldLower, "established"):
+			placeholderValues["[Year]"] = valueStr
+
+		// Location mapping
+		case strings.Contains(fieldLower, "location"),
+			strings.Contains(fieldLower, "headquarters"),
+			strings.Contains(fieldLower, "address"),
+			strings.Contains(fieldLower, "office"):
+			placeholderValues["[Location]"] = valueStr
+
+		// Employee count mapping
+		case strings.Contains(fieldLower, "employees"),
+			strings.Contains(fieldLower, "headcount"),
+			strings.Contains(fieldLower, "staff"):
+			placeholderValues["[Number]"] = valueStr
+
+		// Website mapping
+		case strings.Contains(fieldLower, "website"),
+			strings.Contains(fieldLower, "url"),
+			strings.Contains(fieldLower, "web"):
+			placeholderValues["[URL]"] = valueStr
+
+		// Percentage mapping
+		case strings.Contains(fieldLower, "margin"),
+			strings.Contains(fieldLower, "growth"),
+			strings.Contains(fieldLower, "percent"),
+			strings.Contains(fieldLower, "%"):
+			placeholderValues["[%]"] = valueStr
 		}
 	}
 
-	// Apply direct replacements
-	for placeholder, replacement := range directReplacements {
+	// Apply all placeholder replacements
+	for placeholder, replacement := range placeholderValues {
 		if replacement != "" && strings.Contains(populatedContent, placeholder) {
-			fmt.Printf("DEBUG: Direct replacement: '%s' -> '%s'\n", placeholder, replacement)
+			fmt.Printf("DEBUG: Enhanced replacement: '%s' -> '%s'\n", placeholder, replacement)
 			populatedContent = strings.ReplaceAll(populatedContent, placeholder, replacement)
+		}
+	}
+
+	// Special handling for common template patterns
+	// Replace any remaining [To be filled] with first available company/deal name
+	if strings.Contains(populatedContent, "[To be filled]") {
+		for fieldName, mappedField := range mappedData.Fields {
+			fieldLower := strings.ToLower(fieldName)
+			if strings.Contains(fieldLower, "name") || strings.Contains(fieldLower, "company") || strings.Contains(fieldLower, "deal") {
+				valueStr := fmt.Sprintf("%v", mappedField.Value)
+				if valueStr != "" {
+					fmt.Printf("DEBUG: Final fallback replacement for [To be filled]: '%s'\n", valueStr)
+					populatedContent = strings.ReplaceAll(populatedContent, "[To be filled]", valueStr)
+					break
+				}
+			}
 		}
 	}
 
@@ -625,7 +736,7 @@ func (tp *TemplatePopulator) ValidatePopulatedTemplate(populatedPath string, ori
 		return tp.validateExcelFormulas(populatedPath, originalFormulas)
 	case ".csv":
 		return tp.validateCSVFormulas(populatedPath, originalFormulas)
-	case ".txt":
+	case ".txt", ".md":
 		return tp.validateTextTemplate(populatedPath, originalFormulas)
 	default:
 		return fmt.Errorf("unsupported format for validation: %s", ext)

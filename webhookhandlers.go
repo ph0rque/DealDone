@@ -1210,9 +1210,9 @@ func (wh *WebhookHandlers) handlePopulateTemplateProfessional(w http.ResponseWri
 
 	if request.PreserveFormulas {
 		formulaPreservation, populationError = wh.app.templatePopulator.PopulateTemplateWithEnhancedFormulas(
-			templateInfo.Path, mappedData, analysisTemplatePath)
+			analysisTemplatePath, mappedData, analysisTemplatePath)
 	} else {
-		populationError = wh.app.templatePopulator.PopulateTemplate(templateInfo.Path, mappedData, analysisTemplatePath)
+		populationError = wh.app.templatePopulator.PopulateTemplate(analysisTemplatePath, mappedData, analysisTemplatePath)
 	}
 
 	if populationError != nil {

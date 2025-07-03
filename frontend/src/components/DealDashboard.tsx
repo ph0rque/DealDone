@@ -410,6 +410,8 @@ export function DealDashboard() {
     }
   };
 
+
+
   const filteredDeals = deals.filter(deal =>
     deal.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -517,6 +519,7 @@ export function DealDashboard() {
                       )}
                       {isAnalyzing ? "Analyzing..." : "Analyze All"}
                     </Button>
+
                     <Button onClick={() => setShowUpload(!showUpload)}>
                       <Plus className="h-4 w-4 mr-2" />
                       Add Documents

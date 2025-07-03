@@ -4315,23 +4315,21 @@ func (a *App) PopulateTemplateWithData(templateId string, fieldMappings []map[st
 		return nil, fmt.Errorf("template services not initialized")
 	}
 
-	// Find the template path from the ID
-	templatePath, err := a.templateManager.GetTemplatePathByID(templateId)
+	// Find the template info from the ID
+	templateInfo, err := a.templateDiscovery.GetTemplateByID(templateId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find template with ID %s: %w", templateId, err)
 	}
 
-	// Determine the output path in the deal's analysis folder
-	dealAnalysisPath := filepath.Join(a.folderManager.GetDealPath(dealName), "analysis")
-	if err := a.folderManager.EnsureFolderExists(dealAnalysisPath); err != nil {
-		return nil, fmt.Errorf("failed to ensure analysis folder exists: %w", err)
+	// Copy template to analysis folder first
+	analysisTemplatePath, err := a.templateManager.CopyTemplateToAnalysis(templateInfo.Path, dealName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to copy template to analysis folder: %w", err)
 	}
 
-	outputPath := filepath.Join(dealAnalysisPath, filepath.Base(templatePath))
-
 	// DEBUG: log the paths
-	log.Printf("Populating template: %s for deal: %s", templatePath, dealName)
-	log.Printf("Output path: %s", outputPath)
+	log.Printf("Copied template from %s to %s for deal: %s", templateInfo.Path, analysisTemplatePath, dealName)
+	log.Printf("Populating template: %s", analysisTemplatePath)
 
 	// Create MappedData object
 	mappedFields := make(map[string]MappedField)
@@ -4346,6 +4344,9 @@ func (a *App) PopulateTemplateWithData(templateId string, fieldMappings []map[st
 				SourceType: "ai",
 				Confidence: 0.9, // Assume high confidence from professional workflow
 			}
+			log.Printf("DEBUG: Mapped field '%s' to value '%v'", placeholder, value)
+		} else {
+			log.Printf("DEBUG: Skipped invalid mapping: templateField=%v, value=%v", mapping["templateField"], mapping["value"])
 		}
 	}
 
@@ -4356,8 +4357,8 @@ func (a *App) PopulateTemplateWithData(templateId string, fieldMappings []map[st
 		MappingDate: time.Now(),
 	}
 
-	// Call the populator service with the correct method and arguments
-	err = a.templatePopulator.PopulateTemplate(templatePath, mappedData, outputPath)
+	// Call the populator service to populate the template in place
+	err = a.templatePopulator.PopulateTemplate(analysisTemplatePath, mappedData, analysisTemplatePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to populate template file: %w", err)
 	}
@@ -4366,8 +4367,8 @@ func (a *App) PopulateTemplateWithData(templateId string, fieldMappings []map[st
 	response := map[string]interface{}{
 		"success":               true,
 		"message":               "Template populated successfully",
-		"populatedTemplatePath": outputPath,
-		"outputPath":            outputPath,
+		"populatedTemplatePath": analysisTemplatePath,
+		"outputPath":            analysisTemplatePath,
 		"fieldsPopulated":       len(mappedFields),
 		"preserveFormulas":      preserveFormulas,
 		"dealName":              dealName,
