@@ -165,7 +165,7 @@ V4 automatically creates mappings for these fields:
 ```json
 {
   "dealName": "Project Plumb",
-  "documentPaths": ["/path/to/document1.pdf"],
+  "filePaths": ["/path/to/document1.pdf"],
   "triggerType": "analyze_all",
   "jobId": "test_job_123",
   "timestamp": 1734321000000
@@ -178,7 +178,7 @@ curl -X POST http://localhost:5678/webhook/enhanced-analyze-all-v4 \
   -H "Content-Type: application/json" \
   -d '{
     "dealName": "Project Plumb",
-    "documentPaths": ["/Users/home/Desktop/DealDone/Deals/Project Plumb/documents/test.pdf"],
+    "filePaths": ["/Users/home/Desktop/DealDone/Deals/Project Plumb/documents/test.pdf"],
     "triggerType": "analyze_all",
     "jobId": "test_v4_workflow",
     "timestamp": 1734321000000
