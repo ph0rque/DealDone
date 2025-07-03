@@ -4444,13 +4444,102 @@ func (a *App) CopyTemplatesToAnalysis(dealName string, documentTypes []string) (
 	return copiedTemplates, nil
 }
 
-// AnalyzeDocumentsAndPopulateTemplates performs complete template analysis workflow
+// AnalyzeDocumentsAndPopulateTemplates performs complete template analysis workflow using n8n
 func (a *App) AnalyzeDocumentsAndPopulateTemplates(dealName string, documentPaths []string) (*TemplateAnalysisResult, error) {
-
 	if len(documentPaths) == 0 {
 		return nil, fmt.Errorf("no documents provided for analysis")
 	}
 
+	result := &TemplateAnalysisResult{
+		DealName:           dealName,
+		ProcessedDocuments: make([]string, 0),
+		CopiedTemplates:    make([]string, 0),
+		PopulatedTemplates: make([]string, 0),
+		Errors:             make([]string, 0),
+		StartTime:          time.Now(),
+	}
+
+	// TASK 1.2.3: Use n8n workflow instead of direct processing
+	if a.n8nIntegration != nil {
+		// Generate job ID for tracking
+		jobID := fmt.Sprintf("enhanced_analyze_%d_%s", time.Now().UnixMilli(), dealName)
+
+		// Create job entry in tracker
+		if a.jobTracker != nil {
+			a.jobTracker.CreateJob(jobID, dealName, TriggerAnalyzeAll, documentPaths)
+		}
+
+		// Create payload for enhanced n8n workflow
+		payload := &DocumentWebhookPayload{
+			DealName:       dealName,
+			FilePaths:      documentPaths,
+			TriggerType:    TriggerAnalyzeAll,
+			WorkflowType:   WorkflowDocumentAnalysis, // Use the document analysis workflow
+			JobID:          jobID,
+			Priority:       PriorityHigh,
+			Timestamp:      time.Now().UnixMilli(),
+			RetryCount:     0,
+			MaxRetries:     3,
+			TimeoutSeconds: 300, // 5 minutes timeout
+			ProcessingConfig: &ProcessingConfig{
+				EnableOCR:               true,
+				EnableTemplateDiscovery: true,
+				EnableFieldExtraction:   true,
+				EnableConfidenceScoring: true,
+				AnalysisDepth:           "comprehensive",
+			},
+			Metadata: map[string]interface{}{
+				"enhanced_workflow":  true,
+				"ai_provider":        "openai", // Using ChatGPT as per PRD 1.2
+				"template_analysis":  true,
+				"population_enabled": true,
+				"quality_validation": true,
+			},
+		}
+
+		// Send to n8n enhanced workflow
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		workflowResult, err := a.n8nIntegration.SendDocumentAnalysisRequest(ctx, payload)
+		if err != nil {
+			// Fallback to legacy processing if n8n fails
+			fmt.Printf("Warning: n8n enhanced workflow failed, falling back to legacy processing: %v\n", err)
+			if a.jobTracker != nil {
+				a.jobTracker.FailJob(jobID, fmt.Sprintf("n8n workflow failed: %v", err))
+			}
+			return a.legacyAnalyzeDocumentsAndPopulateTemplates(dealName, documentPaths)
+		}
+
+		// Update job status
+		if a.jobTracker != nil {
+			updates := map[string]interface{}{
+				"status":      "processing",
+				"progress":    0.1,
+				"currentStep": "n8n_enhanced_workflow_started",
+				"workflowId":  workflowResult.ID,
+			}
+			a.jobTracker.UpdateJob(jobID, updates)
+		}
+
+		// For the enhanced workflow, we return a partial result indicating the workflow has started
+		// The actual results will be received via webhooks
+		result.EndTime = time.Now()
+		result.ProcessingTime = result.EndTime.Sub(result.StartTime)
+		result.Success = true
+		result.ProcessedDocuments = documentPaths
+		result.Errors = []string{fmt.Sprintf("Enhanced analysis started via n8n workflow %s. Results will be available via webhooks.", workflowResult.ID)}
+
+		return result, nil
+	}
+
+	// Fallback to legacy processing if n8n is not available
+	fmt.Printf("Warning: n8n integration not available, using legacy processing\n")
+	return a.legacyAnalyzeDocumentsAndPopulateTemplates(dealName, documentPaths)
+}
+
+// legacyAnalyzeDocumentsAndPopulateTemplates is the original implementation for fallback
+func (a *App) legacyAnalyzeDocumentsAndPopulateTemplates(dealName string, documentPaths []string) (*TemplateAnalysisResult, error) {
 	result := &TemplateAnalysisResult{
 		DealName:           dealName,
 		ProcessedDocuments: make([]string, 0),
@@ -4489,7 +4578,6 @@ func (a *App) AnalyzeDocumentsAndPopulateTemplates(dealName string, documentPath
 		result.Errors = append(result.Errors, fmt.Sprintf("Failed to copy templates: %v", err))
 	} else {
 		result.CopiedTemplates = copiedTemplates
-
 	}
 
 	// Step 4: For each document, try to find and populate relevant templates

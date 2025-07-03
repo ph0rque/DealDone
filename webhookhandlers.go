@@ -330,6 +330,13 @@ func (wh *WebhookHandlers) RegisterHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("/extract-document-fields", wh.HandleExtractDocumentFields)
 	mux.HandleFunc("/map-template-fields", wh.HandleMapTemplateFields)
 	mux.HandleFunc("/populate-template", wh.HandlePopulateTemplate)
+
+	// NEW ENHANCED N8N WEBHOOK ENDPOINTS FOR TASK 1.2.2
+	mux.HandleFunc("/webhook/n8n/enhanced/extract-document-fields", wh.HandleEnhancedExtractDocumentFields)
+	mux.HandleFunc("/webhook/n8n/enhanced/map-fields-to-template", wh.HandleEnhancedMapFieldsToTemplate)
+	mux.HandleFunc("/webhook/n8n/enhanced/format-field-value", wh.HandleEnhancedFormatFieldValue)
+	mux.HandleFunc("/webhook/n8n/enhanced/validate-template-data", wh.HandleEnhancedValidateTemplateData)
+	mux.HandleFunc("/webhook/n8n/enhanced/analyze-document", wh.HandleEnhancedAnalyzeDocument)
 }
 
 // CreateHTTPServer creates an HTTP server with webhook handlers
@@ -512,6 +519,201 @@ func (wh *WebhookHandlers) HandlePopulateTemplate(w http.ResponseWriter, r *http
 	if err != nil {
 		log.Printf("Template population error: %v", err)
 		http.Error(w, fmt.Sprintf("Template population failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// NEW ENHANCED WEBHOOK HANDLERS FOR TASK 1.2.2
+
+// HandleEnhancedExtractDocumentFields handles enhanced document field extraction using AI
+func (wh *WebhookHandlers) HandleEnhancedExtractDocumentFields(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request struct {
+		Content         string                 `json:"content"`
+		DocumentType    string                 `json:"documentType"`
+		TemplateContext map[string]interface{} `json:"templateContext"`
+		JobID           string                 `json:"jobId"`
+		DealName        string                 `json:"dealName"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Use AI service to extract document fields
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	result, err := wh.app.aiService.ExtractDocumentFields(ctx, request.Content, request.DocumentType, request.TemplateContext)
+	if err != nil {
+		log.Printf("Enhanced field extraction error: %v", err)
+		http.Error(w, fmt.Sprintf("Enhanced field extraction failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// HandleEnhancedMapFieldsToTemplate handles enhanced field mapping using AI
+func (wh *WebhookHandlers) HandleEnhancedMapFieldsToTemplate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request struct {
+		ExtractedFields map[string]interface{} `json:"extractedFields"`
+		TemplateFields  []TemplateField        `json:"templateFields"`
+		MappingContext  map[string]interface{} `json:"mappingContext"`
+		JobID           string                 `json:"jobId"`
+		DealName        string                 `json:"dealName"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Use AI service to map fields to template
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	result, err := wh.app.aiService.MapFieldsToTemplate(ctx, request.ExtractedFields, request.TemplateFields, request.MappingContext)
+	if err != nil {
+		log.Printf("Enhanced field mapping error: %v", err)
+		http.Error(w, fmt.Sprintf("Enhanced field mapping failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// HandleEnhancedFormatFieldValue handles enhanced field value formatting using AI
+func (wh *WebhookHandlers) HandleEnhancedFormatFieldValue(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request struct {
+		RawValue           interface{}            `json:"rawValue"`
+		FieldType          string                 `json:"fieldType"`
+		FormatRequirements map[string]interface{} `json:"formatRequirements"`
+		JobID              string                 `json:"jobId"`
+		DealName           string                 `json:"dealName"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Use AI service to format field value
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := wh.app.aiService.FormatFieldValue(ctx, request.RawValue, request.FieldType, request.FormatRequirements)
+	if err != nil {
+		log.Printf("Enhanced field formatting error: %v", err)
+		http.Error(w, fmt.Sprintf("Enhanced field formatting failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// HandleEnhancedValidateTemplateData handles enhanced template data validation using AI
+func (wh *WebhookHandlers) HandleEnhancedValidateTemplateData(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request struct {
+		TemplateData    map[string]interface{} `json:"templateData"`
+		ValidationRules []ValidationRule       `json:"validationRules"`
+		JobID           string                 `json:"jobId"`
+		DealName        string                 `json:"dealName"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Use AI service to validate template data
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := wh.app.aiService.ValidateTemplateData(ctx, request.TemplateData, request.ValidationRules)
+	if err != nil {
+		log.Printf("Enhanced template validation error: %v", err)
+		http.Error(w, fmt.Sprintf("Enhanced template validation failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// HandleEnhancedAnalyzeDocument handles comprehensive document analysis using AI
+func (wh *WebhookHandlers) HandleEnhancedAnalyzeDocument(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request struct {
+		Content      string                 `json:"content"`
+		DocumentType string                 `json:"documentType"`
+		AnalysisType string                 `json:"analysisType"` // "classification", "financial", "risks", "insights"
+		Context      map[string]interface{} `json:"context"`
+		JobID        string                 `json:"jobId"`
+		DealName     string                 `json:"dealName"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	var result interface{}
+	var err error
+
+	// Route to appropriate AI analysis method based on analysis type
+	switch request.AnalysisType {
+	case "classification":
+		result, err = wh.app.aiService.ClassifyDocument(ctx, request.Content, request.Context)
+	case "financial":
+		result, err = wh.app.aiService.ExtractFinancialData(ctx, request.Content)
+	case "risks":
+		result, err = wh.app.aiService.AnalyzeRisks(ctx, request.Content, request.DocumentType)
+	case "insights":
+		result, err = wh.app.aiService.GenerateInsights(ctx, request.Content, request.DocumentType)
+	case "entities":
+		result, err = wh.app.aiService.ExtractEntities(ctx, request.Content)
+	default:
+		// Default to comprehensive classification
+		result, err = wh.app.aiService.ClassifyDocument(ctx, request.Content, request.Context)
+	}
+
+	if err != nil {
+		log.Printf("Enhanced document analysis error: %v", err)
+		http.Error(w, fmt.Sprintf("Enhanced document analysis failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 

@@ -355,3 +355,242 @@ func (cp *ClaudeProvider) IsAvailable() bool {
 func (cp *ClaudeProvider) GetUsage() *AIUsageStats {
 	return cp.stats
 }
+
+// NEW METHODS FOR ENHANCED TEMPLATE PROCESSING
+
+// ExtractDocumentFields extracts structured field data from documents for template mapping
+func (cp *ClaudeProvider) ExtractDocumentFields(ctx context.Context, content string, documentType string, templateContext map[string]interface{}) (*DocumentFieldExtraction, error) {
+	atomic.AddInt64(&cp.stats.TotalRequests, 1)
+
+	// Truncate content if too long
+	if len(content) > 15000 {
+		content = content[:15000] + "..."
+	}
+
+	systemPrompt := `You are an expert document field extraction specialist for M&A due diligence. 
+Extract structured field data from the provided document that would be useful for populating templates.
+Focus on key financial metrics, dates, names, monetary values, percentages, and other important data points.
+
+Provide your response in JSON format with the following structure:
+{
+  "fields": {
+    "fieldName": "extractedValue",
+    "company_name": "AquaFlow Technologies",
+    "revenue": 25000000,
+    "ebitda": 8500000,
+    "closing_date": "2024-12-31",
+    "purchase_price": 125000000
+  },
+  "fieldTypes": {
+    "fieldName": "type",
+    "company_name": "text",
+    "revenue": "currency",
+    "ebitda": "currency", 
+    "closing_date": "date",
+    "purchase_price": "currency"
+  },
+  "confidence": 0.85,
+  "warnings": ["Any extraction warnings"],
+  "metadata": {
+    "extraction_method": "ai_analysis",
+    "document_sections_analyzed": ["financial_summary", "terms"]
+  },
+  "source": "document_content"
+}
+
+Extract as many relevant fields as possible. Use descriptive field names. For monetary values, extract the raw number (without currency symbols). For dates, use ISO format when possible.`
+
+	userPrompt := fmt.Sprintf("Extract structured fields from this %s document:\n\n%s", documentType, content)
+
+	response, err := cp.makeRequest(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		atomic.AddInt64(&cp.stats.FailedCalls, 1)
+		return nil, err
+	}
+
+	var result DocumentFieldExtraction
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		atomic.AddInt64(&cp.stats.FailedCalls, 1)
+		return nil, fmt.Errorf("failed to parse field extraction response: %w", err)
+	}
+
+	atomic.AddInt64(&cp.stats.SuccessfulCalls, 1)
+	return &result, nil
+}
+
+// MapFieldsToTemplate maps extracted document fields to template field requirements
+func (cp *ClaudeProvider) MapFieldsToTemplate(ctx context.Context, extractedFields map[string]interface{}, templateFields []TemplateField, mappingContext map[string]interface{}) (*FieldMappingResult, error) {
+	atomic.AddInt64(&cp.stats.TotalRequests, 1)
+
+	// Prepare template fields info for the prompt
+	templateFieldsJSON, _ := json.Marshal(templateFields)
+	extractedFieldsJSON, _ := json.Marshal(extractedFields)
+
+	systemPrompt := `You are an expert field mapping specialist for M&A document processing.
+Map extracted document fields to template field requirements based on semantic similarity and data type compatibility.
+
+Provide your response in JSON format with the following structure:
+{
+  "mappings": [
+    {
+      "documentField": "company_name",
+      "templateField": "target_company",
+      "value": "AquaFlow Technologies",
+      "confidence": 0.95,
+      "transformApplied": "none"
+    },
+    {
+      "documentField": "revenue",
+      "templateField": "annual_revenue",
+      "value": 25000000,
+      "confidence": 0.90,
+      "transformApplied": "currency_formatting"
+    }
+  ],
+  "unmappedFields": ["field_not_mapped"],
+  "missingFields": ["required_template_field_not_found"],
+  "confidence": 0.85,
+  "suggestions": [
+    {
+      "documentField": "alternative_field",
+      "templateField": "target_field",
+      "confidence": 0.70,
+      "reason": "Semantic similarity but lower confidence"
+    }
+  ],
+  "metadata": {
+    "mapping_method": "ai_semantic_analysis",
+    "total_mappings": 5
+  }
+}
+
+Focus on creating high-confidence mappings. Consider field names, data types, and semantic meaning.`
+
+	userPrompt := fmt.Sprintf("Map these extracted fields:\n%s\n\nTo these template fields:\n%s",
+		string(extractedFieldsJSON), string(templateFieldsJSON))
+
+	response, err := cp.makeRequest(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		atomic.AddInt64(&cp.stats.FailedCalls, 1)
+		return nil, err
+	}
+
+	var result FieldMappingResult
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		atomic.AddInt64(&cp.stats.FailedCalls, 1)
+		return nil, fmt.Errorf("failed to parse field mapping response: %w", err)
+	}
+
+	atomic.AddInt64(&cp.stats.SuccessfulCalls, 1)
+	return &result, nil
+}
+
+// FormatFieldValue formats a raw field value according to template requirements
+func (cp *ClaudeProvider) FormatFieldValue(ctx context.Context, rawValue interface{}, fieldType string, formatRequirements map[string]interface{}) (*FormattedFieldValue, error) {
+	atomic.AddInt64(&cp.stats.TotalRequests, 1)
+
+	formatReqJSON, _ := json.Marshal(formatRequirements)
+
+	systemPrompt := `You are an expert data formatter for M&A templates.
+Format the provided raw value according to the specified field type and format requirements.
+
+Provide your response in JSON format with the following structure:
+{
+  "formattedValue": "$25,000,000",
+  "originalValue": 25000000,
+  "formatApplied": "currency_usd_with_commas",
+  "confidence": 0.95,
+  "warnings": ["Any formatting warnings"],
+  "metadata": {
+    "format_method": "ai_formatting",
+    "locale": "en_US"
+  }
+}
+
+Common formatting patterns:
+- currency: Add currency symbol, commas, proper decimal places
+- date: Convert to readable format (e.g., "December 31, 2024")
+- percentage: Add % symbol, proper decimal places
+- number: Add commas for thousands separator
+- text: Clean and capitalize appropriately`
+
+	userPrompt := fmt.Sprintf("Format this value: %v\nField type: %s\nFormat requirements: %s",
+		rawValue, fieldType, string(formatReqJSON))
+
+	response, err := cp.makeRequest(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		atomic.AddInt64(&cp.stats.FailedCalls, 1)
+		return nil, err
+	}
+
+	var result FormattedFieldValue
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		atomic.AddInt64(&cp.stats.FailedCalls, 1)
+		return nil, fmt.Errorf("failed to parse field formatting response: %w", err)
+	}
+
+	atomic.AddInt64(&cp.stats.SuccessfulCalls, 1)
+	return &result, nil
+}
+
+// ValidateTemplateData validates that mapped data meets template requirements
+func (cp *ClaudeProvider) ValidateTemplateData(ctx context.Context, templateData map[string]interface{}, validationRules []ValidationRule) (*ValidationResult, error) {
+	atomic.AddInt64(&cp.stats.TotalRequests, 1)
+
+	templateDataJSON, _ := json.Marshal(templateData)
+	validationRulesJSON, _ := json.Marshal(validationRules)
+
+	systemPrompt := `You are an expert data validation specialist for M&A templates.
+Validate the provided template data against the specified validation rules.
+
+Provide your response in JSON format with the following structure:
+{
+  "isValid": true,
+  "errors": [
+    {
+      "field": "field_name",
+      "rule": "required",
+      "message": "Field is required but missing",
+      "value": null
+    }
+  ],
+  "warnings": [
+    {
+      "field": "field_name", 
+      "message": "Value seems unusually high",
+      "value": 1000000000
+    }
+  ],
+  "summary": "Validation completed with 2 errors and 1 warning",
+  "metadata": {
+    "validation_method": "ai_analysis",
+    "total_fields_validated": 15,
+    "validation_time": "2024-01-01T12:00:00Z"
+  }
+}
+
+Validation types:
+- required: Field must have a value
+- format: Value must match expected format
+- range: Numeric value must be within specified range
+- pattern: Text must match regex pattern
+- type: Value must be of correct data type`
+
+	userPrompt := fmt.Sprintf("Validate this template data:\n%s\n\nUsing these validation rules:\n%s",
+		string(templateDataJSON), string(validationRulesJSON))
+
+	response, err := cp.makeRequest(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		atomic.AddInt64(&cp.stats.FailedCalls, 1)
+		return nil, err
+	}
+
+	var result ValidationResult
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		atomic.AddInt64(&cp.stats.FailedCalls, 1)
+		return nil, fmt.Errorf("failed to parse validation response: %w", err)
+	}
+
+	atomic.AddInt64(&cp.stats.SuccessfulCalls, 1)
+	return &result, nil
+}

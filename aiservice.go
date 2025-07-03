@@ -33,6 +33,20 @@ type AIServiceInterface interface {
 	// ExtractEntities extracts named entities from content
 	ExtractEntities(ctx context.Context, content string) (*EntityExtraction, error)
 
+	// NEW METHODS FOR ENHANCED TEMPLATE PROCESSING
+
+	// ExtractDocumentFields extracts structured field data from documents for template mapping
+	ExtractDocumentFields(ctx context.Context, content string, documentType string, templateContext map[string]interface{}) (*DocumentFieldExtraction, error)
+
+	// MapFieldsToTemplate maps extracted document fields to template field requirements
+	MapFieldsToTemplate(ctx context.Context, extractedFields map[string]interface{}, templateFields []TemplateField, mappingContext map[string]interface{}) (*FieldMappingResult, error)
+
+	// FormatFieldValue formats a raw field value according to template requirements (currency, dates, etc.)
+	FormatFieldValue(ctx context.Context, rawValue interface{}, fieldType string, formatRequirements map[string]interface{}) (*FormattedFieldValue, error)
+
+	// ValidateTemplateData validates that mapped data meets template requirements
+	ValidateTemplateData(ctx context.Context, templateData map[string]interface{}, validationRules []ValidationRule) (*ValidationResult, error)
+
 	// GetProvider returns the provider name
 	GetProvider() AIProvider
 
@@ -181,6 +195,55 @@ type Entity struct {
 	Confidence float64                `json:"confidence"`
 	Context    string                 `json:"context"`
 	Metadata   map[string]interface{} `json:"metadata"`
+}
+
+// NEW TYPES FOR ENHANCED TEMPLATE PROCESSING
+
+// DocumentFieldExtraction represents structured field data extracted from documents
+type DocumentFieldExtraction struct {
+	Fields     map[string]interface{} `json:"fields"`     // Raw extracted field values
+	Confidence float64                `json:"confidence"` // Overall extraction confidence
+	FieldTypes map[string]string      `json:"fieldTypes"` // Detected field types (currency, date, text, etc.)
+	Metadata   map[string]interface{} `json:"metadata"`   // Additional extraction metadata
+	Warnings   []string               `json:"warnings"`   // Extraction warnings or issues
+	Source     string                 `json:"source"`     // Source document information
+}
+
+// FieldMappingResult represents the result of mapping document fields to template fields
+type FieldMappingResult struct {
+	Mappings       []FieldMapping         `json:"mappings"`       // Individual field mappings
+	UnmappedFields []string               `json:"unmappedFields"` // Document fields that couldn't be mapped
+	MissingFields  []string               `json:"missingFields"`  // Required template fields not found
+	Confidence     float64                `json:"confidence"`     // Overall mapping confidence
+	Suggestions    []MappingSuggestion    `json:"suggestions"`    // Alternative mapping suggestions
+	Metadata       map[string]interface{} `json:"metadata"`       // Additional mapping metadata
+}
+
+// FieldMapping represents a single field mapping from document to template
+type FieldMapping struct {
+	DocumentField    string      `json:"documentField"`    // Source field from document
+	TemplateField    string      `json:"templateField"`    // Target field in template
+	Value            interface{} `json:"value"`            // Mapped value
+	Confidence       float64     `json:"confidence"`       // Mapping confidence
+	TransformApplied string      `json:"transformApplied"` // Any transformation applied
+}
+
+// MappingSuggestion represents an alternative mapping suggestion
+type MappingSuggestion struct {
+	DocumentField string  `json:"documentField"`
+	TemplateField string  `json:"templateField"`
+	Confidence    float64 `json:"confidence"`
+	Reason        string  `json:"reason"`
+}
+
+// FormattedFieldValue represents a formatted field value
+type FormattedFieldValue struct {
+	FormattedValue string                 `json:"formattedValue"` // The formatted value
+	OriginalValue  interface{}            `json:"originalValue"`  // Original raw value
+	FormatApplied  string                 `json:"formatApplied"`  // Format that was applied
+	Confidence     float64                `json:"confidence"`     // Formatting confidence
+	Warnings       []string               `json:"warnings"`       // Any formatting warnings
+	Metadata       map[string]interface{} `json:"metadata"`       // Additional formatting metadata
 }
 
 // AIUsageStats tracks AI service usage
@@ -382,6 +445,146 @@ func (as *AIService) ExtractEntities(ctx context.Context, content string) (*Enti
 	}
 
 	return nil, fmt.Errorf("entity extraction failed: %w", lastError)
+}
+
+// NEW TEMPLATE PROCESSING METHODS WITH FALLBACK SUPPORT
+
+// ExtractDocumentFields extracts structured field data with provider fallback
+func (as *AIService) ExtractDocumentFields(ctx context.Context, content string, documentType string, templateContext map[string]interface{}) (*DocumentFieldExtraction, error) {
+	// Check cache
+	cacheKey := as.cache.GenerateKey("extract_fields", content, map[string]interface{}{
+		"documentType": documentType,
+		"context":      templateContext,
+	})
+	if cached := as.cache.Get(cacheKey); cached != nil {
+		if result, ok := cached.(*DocumentFieldExtraction); ok {
+			return result, nil
+		}
+	}
+
+	// Rate limiting
+	if err := as.rateLimiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limit exceeded: %w", err)
+	}
+
+	// Try providers with fallback
+	var lastError error
+	for _, provider := range as.fallbackOrder {
+		if p, exists := as.providers[provider]; exists && p.IsAvailable() {
+			result, err := p.ExtractDocumentFields(ctx, content, documentType, templateContext)
+			if err == nil {
+				as.cache.Set(cacheKey, result)
+				return result, nil
+			}
+			lastError = err
+		}
+	}
+
+	return nil, fmt.Errorf("document field extraction failed: %w", lastError)
+}
+
+// MapFieldsToTemplate maps fields to template with provider fallback
+func (as *AIService) MapFieldsToTemplate(ctx context.Context, extractedFields map[string]interface{}, templateFields []TemplateField, mappingContext map[string]interface{}) (*FieldMappingResult, error) {
+	// Check cache
+	extractedFieldsStr := fmt.Sprintf("%v", extractedFields)
+	cacheKey := as.cache.GenerateKey("map_fields", extractedFieldsStr, map[string]interface{}{
+		"templateFields": templateFields,
+		"context":        mappingContext,
+	})
+	if cached := as.cache.Get(cacheKey); cached != nil {
+		if result, ok := cached.(*FieldMappingResult); ok {
+			return result, nil
+		}
+	}
+
+	// Rate limiting
+	if err := as.rateLimiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limit exceeded: %w", err)
+	}
+
+	// Try providers with fallback
+	var lastError error
+	for _, provider := range as.fallbackOrder {
+		if p, exists := as.providers[provider]; exists && p.IsAvailable() {
+			result, err := p.MapFieldsToTemplate(ctx, extractedFields, templateFields, mappingContext)
+			if err == nil {
+				as.cache.Set(cacheKey, result)
+				return result, nil
+			}
+			lastError = err
+		}
+	}
+
+	return nil, fmt.Errorf("field mapping failed: %w", lastError)
+}
+
+// FormatFieldValue formats field values with provider fallback
+func (as *AIService) FormatFieldValue(ctx context.Context, rawValue interface{}, fieldType string, formatRequirements map[string]interface{}) (*FormattedFieldValue, error) {
+	// Check cache
+	rawValueStr := fmt.Sprintf("%v", rawValue)
+	cacheKey := as.cache.GenerateKey("format_field", rawValueStr, map[string]interface{}{
+		"fieldType":          fieldType,
+		"formatRequirements": formatRequirements,
+	})
+	if cached := as.cache.Get(cacheKey); cached != nil {
+		if result, ok := cached.(*FormattedFieldValue); ok {
+			return result, nil
+		}
+	}
+
+	// Rate limiting
+	if err := as.rateLimiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limit exceeded: %w", err)
+	}
+
+	// Try providers with fallback
+	var lastError error
+	for _, provider := range as.fallbackOrder {
+		if p, exists := as.providers[provider]; exists && p.IsAvailable() {
+			result, err := p.FormatFieldValue(ctx, rawValue, fieldType, formatRequirements)
+			if err == nil {
+				as.cache.Set(cacheKey, result)
+				return result, nil
+			}
+			lastError = err
+		}
+	}
+
+	return nil, fmt.Errorf("field formatting failed: %w", lastError)
+}
+
+// ValidateTemplateData validates template data with provider fallback
+func (as *AIService) ValidateTemplateData(ctx context.Context, templateData map[string]interface{}, validationRules []ValidationRule) (*ValidationResult, error) {
+	// Check cache
+	templateDataStr := fmt.Sprintf("%v", templateData)
+	cacheKey := as.cache.GenerateKey("validate_data", templateDataStr, map[string]interface{}{
+		"validationRules": validationRules,
+	})
+	if cached := as.cache.Get(cacheKey); cached != nil {
+		if result, ok := cached.(*ValidationResult); ok {
+			return result, nil
+		}
+	}
+
+	// Rate limiting
+	if err := as.rateLimiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limit exceeded: %w", err)
+	}
+
+	// Try providers with fallback
+	var lastError error
+	for _, provider := range as.fallbackOrder {
+		if p, exists := as.providers[provider]; exists && p.IsAvailable() {
+			result, err := p.ValidateTemplateData(ctx, templateData, validationRules)
+			if err == nil {
+				as.cache.Set(cacheKey, result)
+				return result, nil
+			}
+			lastError = err
+		}
+	}
+
+	return nil, fmt.Errorf("template validation failed: %w", lastError)
 }
 
 // GetConfiguration returns the current AI service configuration
