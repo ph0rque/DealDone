@@ -55,6 +55,7 @@ func NewDocumentProcessor(aiService *AIService) *DocumentProcessor {
 			".ppt":  true,
 			".pptx": true,
 			".txt":  true,
+			".md":   true,
 			".rtf":  true,
 			".csv":  true,
 			".jpg":  true,
@@ -329,7 +330,7 @@ func (dp *DocumentProcessor) ExtractText(filePath string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(filePath))
 
 	switch ext {
-	case ".txt":
+	case ".txt", ".md":
 		content, err := os.ReadFile(filePath)
 		if err != nil {
 			return "", fmt.Errorf("failed to read text file: %w", err)

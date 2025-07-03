@@ -11,7 +11,7 @@ import (
 type Template struct {
 	Name     string `json:"name"`
 	Path     string `json:"path"`
-	Type     string `json:"type"` // xlsx, xls, docx, pptx, csv, txt, pdf
+	Type     string `json:"type"` // xlsx, xls, docx, pptx, csv, txt, md, pdf
 	Size     int64  `json:"size"`
 	Modified string `json:"modified"`
 }
@@ -30,7 +30,7 @@ func NewTemplateManager(configService *ConfigService) *TemplateManager {
 
 // GetSupportedExtensions returns the list of supported template file extensions
 func (tm *TemplateManager) GetSupportedExtensions() []string {
-	return []string{".xlsx", ".xls", ".docx", ".pptx", ".csv", ".txt", ".pdf"}
+	return []string{".xlsx", ".xls", ".docx", ".pptx", ".csv", ".txt", ".md", ".pdf"}
 }
 
 // IsTemplateFile checks if a file is a valid template based on extension
