@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -459,7 +460,37 @@ func (a *App) ProcessFolder(folderPath string, dealName string) ([]*RoutingResul
 		return nil, fmt.Errorf("document router not initialized")
 	}
 
-	return a.documentRouter.RouteFolder(folderPath, dealName)
+	results, err := a.documentRouter.RouteFolder(folderPath, dealName)
+	if err != nil {
+		return results, err
+	}
+
+	// Collect successfully processed files for template analysis
+	// For ProcessFolder (Analyze All), include both new and already processed files
+	successfulFiles := make([]string, 0)
+	for _, result := range results {
+		if result.Success {
+			successfulFiles = append(successfulFiles, result.DestinationPath)
+		}
+	}
+
+	// Trigger template analysis workflow for newly processed documents
+	if len(successfulFiles) > 0 {
+		fmt.Printf("DEBUG: Starting template analysis for %d files in deal %s\n", len(successfulFiles), dealName)
+		go func() {
+			templateResult, err := a.AnalyzeDocumentsAndPopulateTemplates(dealName, successfulFiles)
+			if err != nil {
+				fmt.Printf("Warning: Template analysis failed: %v\n", err)
+			} else if templateResult.Success {
+				fmt.Printf("Template analysis completed for %s: %d templates populated\n",
+					dealName, len(templateResult.PopulatedTemplates))
+			} else {
+				fmt.Printf("Template analysis completed but no templates were populated. Errors: %v\n", templateResult.Errors)
+			}
+		}()
+	}
+
+	return results, err
 }
 
 // GetRoutingSummary returns summary statistics for routing results
@@ -3872,5 +3903,588 @@ func (a *App) UploadDocuments(dealName string, files map[string][]byte) ([]*Rout
 		}()
 	}
 
+	// Also trigger template analysis workflow for newly processed documents
+	if len(successfulFiles) > 0 {
+		fmt.Printf("DEBUG: Starting template analysis for %d uploaded files in deal %s\n", len(successfulFiles), dealName)
+		go func() {
+			templateResult, err := a.AnalyzeDocumentsAndPopulateTemplates(dealName, successfulFiles)
+			if err != nil {
+				fmt.Printf("Warning: Template analysis failed: %v\n", err)
+			} else if templateResult.Success {
+				fmt.Printf("Template analysis completed for %s: %d templates populated\n",
+					dealName, len(templateResult.PopulatedTemplates))
+			} else {
+				fmt.Printf("Template analysis completed but no templates were populated. Errors: %v\n", templateResult.Errors)
+			}
+		}()
+	}
+
 	return results, nil
+}
+
+// Template Analysis Integration Methods (for n8n workflows)
+
+// DiscoverTemplatesForN8n discovers relevant templates based on document classification for n8n workflows
+func (a *App) DiscoverTemplatesForN8n(documentType string, dealName string, documentPath string, classification map[string]interface{}) (map[string]interface{}, error) {
+	if a.templateDiscovery == nil {
+		return nil, fmt.Errorf("template discovery not initialized")
+	}
+
+	// Extract classification details
+	primaryCategory := "general"
+	confidence := 0.0
+	if classification != nil {
+		if cat, ok := classification["primaryCategory"].(string); ok {
+			primaryCategory = cat
+		}
+		if conf, ok := classification["confidence"].(float64); ok {
+			confidence = conf
+		}
+	}
+
+	// Create search filters based on classification
+	filters := map[string]string{
+		"category": primaryCategory,
+	}
+
+	// Search for relevant templates
+	templates, err := a.templateDiscovery.SearchTemplates("", filters)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search templates: %w", err)
+	}
+
+	// Score and rank templates
+	templateMatches := make([]map[string]interface{}, 0)
+	for _, template := range templates {
+		score := a.calculateTemplateScore(template, primaryCategory, confidence)
+
+		templateMatch := map[string]interface{}{
+			"templateId":     template.Metadata.ID,
+			"templateName":   template.Name,
+			"name":           template.Name,
+			"matchScore":     score,
+			"relevanceScore": score,
+			"category":       template.Metadata.Category,
+			"type":           template.Type,
+			"path":           template.Path,
+			"fieldCount":     len(template.Metadata.Fields),
+			"fields":         template.Metadata.Fields,
+			"requiredFields": a.getRequiredFields(template.Metadata.Fields),
+		}
+		templateMatches = append(templateMatches, templateMatch)
+	}
+
+	return map[string]interface{}{
+		"templateMatches": templateMatches,
+		"totalFound":      len(templateMatches),
+		"searchParams": map[string]interface{}{
+			"documentType":    documentType,
+			"primaryCategory": primaryCategory,
+			"confidence":      confidence,
+		},
+	}, nil
+}
+
+// calculateTemplateScore calculates relevance score for a template
+func (a *App) calculateTemplateScore(template TemplateInfo, category string, confidence float64) float64 {
+	score := 0.0
+
+	// Category match bonus
+	if template.Metadata != nil && template.Metadata.Category == category {
+		score += 0.5
+	}
+
+	// Confidence factor
+	score += confidence * 0.3
+
+	// Template completeness factor
+	if template.Metadata != nil && len(template.Metadata.Fields) > 0 {
+		score += 0.2
+	}
+
+	// Ensure score is between 0 and 1
+	if score > 1.0 {
+		score = 1.0
+	}
+
+	return score
+}
+
+// getRequiredFields extracts required fields from template fields
+func (a *App) getRequiredFields(fields []TemplateField) []string {
+	required := make([]string, 0)
+	for _, field := range fields {
+		if field.Required {
+			required = append(required, field.Name)
+		}
+	}
+	return required
+}
+
+// ExtractDocumentFields extracts fields from documents for template mapping
+func (a *App) ExtractDocumentFields(mappingParams map[string]interface{}, dealName string) (map[string]interface{}, error) {
+	if a.documentProcessor == nil {
+		return nil, fmt.Errorf("document processor not initialized")
+	}
+
+	// Extract parameters
+	documentData, ok := mappingParams["documentData"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid documentData in mapping params")
+	}
+
+	filePath, ok := documentData["filePath"].(string)
+	if !ok {
+		return nil, fmt.Errorf("missing filePath in documentData")
+	}
+
+	// Process the document to extract structured data
+	docInfo, err := a.documentProcessor.ProcessDocument(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process document: %w", err)
+	}
+
+	// Extract financial data if available
+	financialData, _ := a.ExtractFinancialData(filePath)
+
+	// Extract entities
+	entities, _ := a.ExtractDocumentEntities(filePath)
+
+	// Build extracted fields map
+	extractedFields := make(map[string]interface{})
+
+	// Add financial fields if available
+	if financialData != nil {
+		extractedFields["revenue"] = map[string]interface{}{
+			"value":      financialData.Revenue,
+			"confidence": financialData.Confidence,
+			"source":     "financial_analysis",
+			"dataType":   "currency",
+		}
+		extractedFields["ebitda"] = map[string]interface{}{
+			"value":      financialData.EBITDA,
+			"confidence": financialData.Confidence,
+			"source":     "financial_analysis",
+			"dataType":   "currency",
+		}
+		extractedFields["net_income"] = map[string]interface{}{
+			"value":      financialData.NetIncome,
+			"confidence": financialData.Confidence,
+			"source":     "financial_analysis",
+			"dataType":   "currency",
+		}
+	}
+
+	// Add entity fields if available
+	if entities != nil {
+		for _, org := range entities.Organizations {
+			extractedFields["company_name"] = map[string]interface{}{
+				"value":      org.Text,
+				"confidence": org.Confidence,
+				"source":     "entity_extraction",
+				"dataType":   "text",
+			}
+			break // Use first organization
+		}
+
+		for _, date := range entities.Dates {
+			extractedFields["date"] = map[string]interface{}{
+				"value":      date.Text,
+				"confidence": date.Confidence,
+				"source":     "entity_extraction",
+				"dataType":   "date",
+			}
+			break // Use first date
+		}
+	}
+
+	return map[string]interface{}{
+		"extractedFields": extractedFields,
+		"totalFields":     len(extractedFields),
+		"documentInfo": map[string]interface{}{
+			"fileName":     docInfo.Name,
+			"documentType": string(docInfo.Type),
+			"confidence":   docInfo.Confidence,
+		},
+	}, nil
+}
+
+// MapTemplateFields maps extracted document fields to template fields
+func (a *App) MapTemplateFields(mappingParams map[string]interface{}, extractedFields map[string]interface{}) (map[string]interface{}, error) {
+	if a.fieldMatcher == nil {
+		return nil, fmt.Errorf("field matcher not initialized")
+	}
+
+	// Extract template info
+	templateInfo, ok := mappingParams["templateInfo"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid templateInfo in mapping params")
+	}
+
+	templateFields, ok := templateInfo["templateFields"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("missing templateFields in templateInfo")
+	}
+
+	// Convert template fields to proper format
+	fields := make([]DataField, 0)
+	for _, tf := range templateFields {
+		if fieldMap, ok := tf.(map[string]interface{}); ok {
+			field := DataField{
+				Name:     fieldMap["name"].(string),
+				DataType: fieldMap["type"].(string),
+			}
+			if req, ok := fieldMap["required"].(bool); ok {
+				field.IsRequired = req
+			}
+			fields = append(fields, field)
+		}
+	}
+
+	// Create field mappings
+	mappings := make([]map[string]interface{}, 0)
+
+	for _, templateField := range fields {
+		// Try to find matching extracted field
+		bestMatch := a.findBestFieldMatch(templateField.Name, extractedFields)
+
+		if bestMatch != nil {
+			mapping := map[string]interface{}{
+				"templateField": templateField.Name,
+				"documentField": bestMatch["fieldName"],
+				"value":         bestMatch["value"],
+				"confidence":    bestMatch["confidence"],
+				"mappingType":   bestMatch["mappingType"],
+				"dataType":      templateField.DataType,
+			}
+			mappings = append(mappings, mapping)
+		}
+	}
+
+	return map[string]interface{}{
+		"mappings":        mappings,
+		"extractedFields": extractedFields,
+	}, nil
+}
+
+// findBestFieldMatch finds the best matching extracted field for a template field
+func (a *App) findBestFieldMatch(templateFieldName string, extractedFields map[string]interface{}) map[string]interface{} {
+	templateLower := strings.ToLower(templateFieldName)
+
+	// Direct match first
+	for fieldName, fieldData := range extractedFields {
+		if strings.ToLower(fieldName) == templateLower {
+			if fieldMap, ok := fieldData.(map[string]interface{}); ok {
+				return map[string]interface{}{
+					"fieldName":   fieldName,
+					"value":       fieldMap["value"],
+					"confidence":  fieldMap["confidence"],
+					"mappingType": "direct_match",
+				}
+			}
+		}
+	}
+
+	// Fuzzy match for common field mappings
+	fieldMappings := map[string][]string{
+		"revenue":    {"total_revenue", "gross_revenue", "sales", "income"},
+		"ebitda":     {"earnings", "operating_income", "ebit"},
+		"net_income": {"profit", "net_profit", "earnings"},
+		"company":    {"company_name", "organization", "business"},
+		"date":       {"report_date", "fiscal_date", "period"},
+	}
+
+	if synonyms, exists := fieldMappings[templateLower]; exists {
+		for _, synonym := range synonyms {
+			for fieldName, fieldData := range extractedFields {
+				if strings.Contains(strings.ToLower(fieldName), synonym) {
+					if fieldMap, ok := fieldData.(map[string]interface{}); ok {
+						return map[string]interface{}{
+							"fieldName":   fieldName,
+							"value":       fieldMap["value"],
+							"confidence":  fieldMap["confidence"].(float64) * 0.8, // Reduce confidence for fuzzy match
+							"mappingType": "fuzzy_match",
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// PopulateTemplateWithData populates a template with mapped field data
+func (a *App) PopulateTemplateWithData(templateId string, fieldMappings []map[string]interface{}, preserveFormulas bool, dealName string) (map[string]interface{}, error) {
+	if a.templateManager == nil || a.templatePopulator == nil {
+		return nil, fmt.Errorf("template services not initialized")
+	}
+
+	// Find template by ID
+	templateInfo, err := a.templateDiscovery.GetTemplateByID(templateId)
+	if err != nil {
+		return nil, fmt.Errorf("template not found: %w", err)
+	}
+
+	// Copy template to analysis folder
+	analysisTemplatePath, err := a.templateManager.CopyTemplateToAnalysis(templateInfo.Path, dealName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to copy template to analysis folder: %w", err)
+	}
+
+	// Convert field mappings to MappedData format
+	mappedData := &MappedData{
+		TemplateID:  templateId,
+		DealName:    dealName,
+		Fields:      make(map[string]MappedField),
+		MappingDate: time.Now(),
+		Confidence:  0.0,
+	}
+
+	totalConfidence := 0.0
+	fieldCount := 0
+
+	for _, mapping := range fieldMappings {
+		templateField, ok := mapping["templateField"].(string)
+		if !ok {
+			continue
+		}
+
+		value := mapping["value"]
+		confidence, _ := mapping["confidence"].(float64)
+
+		mappedField := MappedField{
+			FieldName:    templateField,
+			Value:        value,
+			Source:       "n8n_mapping",
+			SourceType:   "ai",
+			Confidence:   confidence,
+			OriginalText: fmt.Sprintf("%v", value),
+		}
+
+		mappedData.Fields[templateField] = mappedField
+		totalConfidence += confidence
+		fieldCount++
+	}
+
+	if fieldCount > 0 {
+		mappedData.Confidence = totalConfidence / float64(fieldCount)
+	}
+
+	// Populate the template
+	err = a.templatePopulator.PopulateTemplate(analysisTemplatePath, mappedData, analysisTemplatePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to populate template: %w", err)
+	}
+
+	// Validate formulas if requested
+	var formulaValidation map[string]interface{}
+	if preserveFormulas {
+		preservation, err := a.templatePopulator.PreserveFormulas(templateInfo.Path)
+		if err == nil {
+			err = a.templatePopulator.ValidatePopulatedTemplate(analysisTemplatePath, preservation)
+			formulaValidation = map[string]interface{}{
+				"formulasPreserved": preservation.TotalFormulas,
+				"formulasTotal":     preservation.TotalFormulas,
+				"validationPassed":  err == nil,
+			}
+		}
+	}
+
+	return map[string]interface{}{
+		"success":              true,
+		"populatedTemplateId":  templateId,
+		"populatedPath":        analysisTemplatePath,
+		"fieldsPopulated":      len(fieldMappings),
+		"totalFields":          len(templateInfo.Metadata.Fields),
+		"completionPercentage": float64(len(fieldMappings)) / float64(len(templateInfo.Metadata.Fields)) * 100,
+		"formulaValidation":    formulaValidation,
+		"populationSummary": map[string]interface{}{
+			"dealName":          dealName,
+			"templateName":      templateInfo.Name,
+			"averageConfidence": mappedData.Confidence,
+			"populationDate":    time.Now().Format(time.RFC3339),
+		},
+	}, nil
+}
+
+// CopyTemplatesToAnalysis copies all relevant templates to a deal's analysis folder
+func (a *App) CopyTemplatesToAnalysis(dealName string, documentTypes []string) ([]string, error) {
+	if a.templateManager == nil || a.templateDiscovery == nil {
+		return nil, fmt.Errorf("template services not initialized")
+	}
+
+	copiedTemplates := make([]string, 0)
+
+	// Get all templates
+	templates, err := a.templateDiscovery.DiscoverTemplates()
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover templates: %w", err)
+	}
+
+	// Filter templates by document types
+	for _, template := range templates {
+		if template.Metadata == nil {
+			continue
+		}
+
+		// Check if template category matches any document type
+		shouldCopy := false
+		for _, docType := range documentTypes {
+			if strings.EqualFold(template.Metadata.Category, docType) {
+				shouldCopy = true
+				break
+			}
+		}
+
+		if shouldCopy {
+			copiedPath, err := a.templateManager.CopyTemplateToAnalysis(template.Path, dealName)
+			if err != nil {
+				fmt.Printf("Warning: Failed to copy template %s: %v\n", template.Name, err)
+				continue
+			}
+			copiedTemplates = append(copiedTemplates, copiedPath)
+		}
+	}
+
+	return copiedTemplates, nil
+}
+
+// AnalyzeDocumentsAndPopulateTemplates performs complete template analysis workflow
+func (a *App) AnalyzeDocumentsAndPopulateTemplates(dealName string, documentPaths []string) (*TemplateAnalysisResult, error) {
+	fmt.Printf("DEBUG: AnalyzeDocumentsAndPopulateTemplates called with %d documents for deal %s\n", len(documentPaths), dealName)
+
+	if len(documentPaths) == 0 {
+		return nil, fmt.Errorf("no documents provided for analysis")
+	}
+
+	result := &TemplateAnalysisResult{
+		DealName:           dealName,
+		ProcessedDocuments: make([]string, 0),
+		CopiedTemplates:    make([]string, 0),
+		PopulatedTemplates: make([]string, 0),
+		Errors:             make([]string, 0),
+		StartTime:          time.Now(),
+	}
+
+	// Step 1: Analyze each document to determine types
+	documentTypes := make(map[string]string)
+	for _, docPath := range documentPaths {
+		docInfo, err := a.documentProcessor.ProcessDocument(docPath)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Failed to process %s: %v", docPath, err))
+			continue
+		}
+
+		documentTypes[docPath] = string(docInfo.Type)
+		result.ProcessedDocuments = append(result.ProcessedDocuments, docPath)
+	}
+
+	// Step 2: Determine unique document types for template copying
+	uniqueTypes := make([]string, 0)
+	typeMap := make(map[string]bool)
+	for _, docType := range documentTypes {
+		if !typeMap[docType] {
+			uniqueTypes = append(uniqueTypes, docType)
+			typeMap[docType] = true
+		}
+	}
+
+	// Step 3: Copy relevant templates to analysis folder
+	copiedTemplates, err := a.CopyTemplatesToAnalysis(dealName, uniqueTypes)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("Failed to copy templates: %v", err))
+	} else {
+		result.CopiedTemplates = copiedTemplates
+	}
+
+	// Step 4: For each document, try to find and populate relevant templates
+	for _, docPath := range result.ProcessedDocuments {
+		docType := documentTypes[docPath]
+
+		// Discover templates for this document
+		classification := map[string]interface{}{
+			"primaryCategory": docType,
+			"confidence":      0.8,
+		}
+
+		templates, err := a.DiscoverTemplatesForN8n(docType, dealName, docPath, classification)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Template discovery failed for %s: %v", docPath, err))
+			continue
+		}
+
+		templateMatches, ok := templates["templateMatches"].([]map[string]interface{})
+		if !ok || len(templateMatches) == 0 {
+			result.Errors = append(result.Errors, fmt.Sprintf("No templates found for %s", docPath))
+			continue
+		}
+
+		// Use the best matching template
+		bestTemplate := templateMatches[0]
+		templateId, ok := bestTemplate["templateId"].(string)
+		if !ok {
+			result.Errors = append(result.Errors, fmt.Sprintf("Invalid template ID for %s", docPath))
+			continue
+		}
+
+		// Extract fields from document
+		mappingParams := map[string]interface{}{
+			"documentData": map[string]interface{}{
+				"filePath":       docPath,
+				"fileName":       filepath.Base(docPath),
+				"classification": classification,
+			},
+			"templateInfo": bestTemplate,
+		}
+
+		extractedFields, err := a.ExtractDocumentFields(mappingParams, dealName)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Field extraction failed for %s: %v", docPath, err))
+			continue
+		}
+
+		// Map fields to template
+		mappingResult, err := a.MapTemplateFields(mappingParams, extractedFields["extractedFields"].(map[string]interface{}))
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Field mapping failed for %s: %v", docPath, err))
+			continue
+		}
+
+		mappings, ok := mappingResult["mappings"].([]map[string]interface{})
+		if !ok || len(mappings) == 0 {
+			result.Errors = append(result.Errors, fmt.Sprintf("No field mappings found for %s", docPath))
+			continue
+		}
+
+		// Populate template with mapped data
+		populationResult, err := a.PopulateTemplateWithData(templateId, mappings, true, dealName)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Template population failed for %s: %v", docPath, err))
+			continue
+		}
+
+		if populatedPath, ok := populationResult["populatedPath"].(string); ok {
+			result.PopulatedTemplates = append(result.PopulatedTemplates, populatedPath)
+		}
+	}
+
+	result.EndTime = time.Now()
+	result.ProcessingTime = result.EndTime.Sub(result.StartTime)
+	result.Success = len(result.PopulatedTemplates) > 0
+
+	return result, nil
+}
+
+// TemplateAnalysisResult represents the result of template analysis workflow
+type TemplateAnalysisResult struct {
+	DealName           string        `json:"dealName"`
+	ProcessedDocuments []string      `json:"processedDocuments"`
+	CopiedTemplates    []string      `json:"copiedTemplates"`
+	PopulatedTemplates []string      `json:"populatedTemplates"`
+	Errors             []string      `json:"errors"`
+	Success            bool          `json:"success"`
+	StartTime          time.Time     `json:"startTime"`
+	EndTime            time.Time     `json:"endTime"`
+	ProcessingTime     time.Duration `json:"processingTime"`
 }

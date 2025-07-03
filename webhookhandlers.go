@@ -324,6 +324,12 @@ func (wh *WebhookHandlers) RegisterHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("/webhook/results", wh.HandleProcessingResults)
 	mux.HandleFunc("/webhook/status", wh.HandleStatusQuery)
 	mux.HandleFunc("/webhook/health", wh.HandleHealthCheck)
+
+	// Template analysis endpoints for n8n workflows
+	mux.HandleFunc("/discover-templates", wh.HandleDiscoverTemplates)
+	mux.HandleFunc("/extract-document-fields", wh.HandleExtractDocumentFields)
+	mux.HandleFunc("/map-template-fields", wh.HandleMapTemplateFields)
+	mux.HandleFunc("/populate-template", wh.HandlePopulateTemplate)
 }
 
 // CreateHTTPServer creates an HTTP server with webhook handlers
@@ -380,4 +386,135 @@ func (wh *WebhookHandlers) StartWebhookServer(config *WebhookServerConfig) error
 	}()
 
 	return nil
+}
+
+// HandleDiscoverTemplates handles template discovery requests from n8n
+func (wh *WebhookHandlers) HandleDiscoverTemplates(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request struct {
+		DocumentType   string                 `json:"documentType"`
+		DealName       string                 `json:"dealName"`
+		DocumentPath   string                 `json:"documentPath"`
+		JobID          string                 `json:"jobId"`
+		Classification map[string]interface{} `json:"classification"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Call the template discovery method
+	result, err := wh.app.DiscoverTemplatesForN8n(request.DocumentType, request.DealName, request.DocumentPath, request.Classification)
+	if err != nil {
+		log.Printf("Template discovery error: %v", err)
+		http.Error(w, fmt.Sprintf("Template discovery failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// HandleExtractDocumentFields handles document field extraction requests from n8n
+func (wh *WebhookHandlers) HandleExtractDocumentFields(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request struct {
+		MappingParams map[string]interface{} `json:"mappingParams"`
+		DealName      string                 `json:"dealName"`
+		JobID         string                 `json:"jobId"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Call the field extraction method
+	result, err := wh.app.ExtractDocumentFields(request.MappingParams, request.DealName)
+	if err != nil {
+		log.Printf("Field extraction error: %v", err)
+		http.Error(w, fmt.Sprintf("Field extraction failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// HandleMapTemplateFields handles template field mapping requests from n8n
+func (wh *WebhookHandlers) HandleMapTemplateFields(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request struct {
+		MappingParams   map[string]interface{} `json:"mappingParams"`
+		ExtractedFields map[string]interface{} `json:"extractedFields"`
+		JobID           string                 `json:"jobId"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Call the field mapping method
+	result, err := wh.app.MapTemplateFields(request.MappingParams, request.ExtractedFields)
+	if err != nil {
+		log.Printf("Field mapping error: %v", err)
+		http.Error(w, fmt.Sprintf("Field mapping failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// HandlePopulateTemplate handles template population requests from n8n
+func (wh *WebhookHandlers) HandlePopulateTemplate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request struct {
+		TemplateID       string                   `json:"templateId"`
+		FieldMappings    []map[string]interface{} `json:"fieldMappings"`
+		PreserveFormulas bool                     `json:"preserveFormulas"`
+		DealName         string                   `json:"dealName"`
+		JobID            string                   `json:"jobId"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Extract deal name from context if not provided
+	dealName := request.DealName
+	if dealName == "" {
+		// Try to extract from job context or use a default
+		dealName = "unknown"
+	}
+
+	// Call the template population method
+	result, err := wh.app.PopulateTemplateWithData(request.TemplateID, request.FieldMappings, request.PreserveFormulas, dealName)
+	if err != nil {
+		log.Printf("Template population error: %v", err)
+		http.Error(w, fmt.Sprintf("Template population failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }
