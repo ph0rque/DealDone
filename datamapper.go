@@ -7,16 +7,19 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"DealDone/internal/core/templates"
+	"DealDone/internal/infrastructure/ai"
 )
 
 // DataMapper handles mapping extracted data to template fields
 type DataMapper struct {
-	aiService      *AIService
-	templateParser *TemplateParser
+	aiService      *ai.AIService
+	templateParser *templates.TemplateParser
 }
 
 // NewDataMapper creates a new data mapper
-func NewDataMapper(aiService *AIService, templateParser *TemplateParser) *DataMapper {
+func NewDataMapper(aiService *ai.AIService, templateParser *templates.TemplateParser) *DataMapper {
 	return &DataMapper{
 		aiService:      aiService,
 		templateParser: templateParser,

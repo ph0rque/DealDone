@@ -7,16 +7,19 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"DealDone/internal/core/documents"
+	"DealDone/internal/infrastructure/ai"
 )
 
 // CompetitiveAnalyzer performs competitive analysis for M&A deals
 type CompetitiveAnalyzer struct {
-	aiService         *AIService
-	documentProcessor *DocumentProcessor
+	aiService         *ai.AIService
+	documentProcessor *documents.DocumentProcessor
 }
 
 // NewCompetitiveAnalyzer creates a new competitive analyzer
-func NewCompetitiveAnalyzer(aiService *AIService, documentProcessor *DocumentProcessor) *CompetitiveAnalyzer {
+func NewCompetitiveAnalyzer(aiService *ai.AIService, documentProcessor *documents.DocumentProcessor) *CompetitiveAnalyzer {
 	return &CompetitiveAnalyzer{
 		aiService:         aiService,
 		documentProcessor: documentProcessor,
@@ -174,7 +177,7 @@ type GrowthOpportunity struct {
 }
 
 // AnalyzeCompetitiveLandscape performs comprehensive competitive analysis
-func (ca *CompetitiveAnalyzer) AnalyzeCompetitiveLandscape(ctx context.Context, dealName string, targetCompany string, documents []DocumentInfo, marketData map[string]interface{}) (*CompetitiveAnalysis, error) {
+func (ca *CompetitiveAnalyzer) AnalyzeCompetitiveLandscape(ctx context.Context, dealName string, targetCompany string, documents []documents.DocumentInfo, marketData map[string]interface{}) (*CompetitiveAnalysis, error) {
 	analysis := &CompetitiveAnalysis{
 		DealName:      dealName,
 		AnalysisDate:  time.Now(),
@@ -219,7 +222,7 @@ func (ca *CompetitiveAnalyzer) AnalyzeCompetitiveLandscape(ctx context.Context, 
 }
 
 // extractCompetitiveData extracts competitive intelligence from documents
-func (ca *CompetitiveAnalyzer) extractCompetitiveData(ctx context.Context, documents []DocumentInfo) (map[string]interface{}, error) {
+func (ca *CompetitiveAnalyzer) extractCompetitiveData(ctx context.Context, documents []documents.DocumentInfo) (map[string]interface{}, error) {
 	competitiveData := make(map[string]interface{})
 
 	// Process each document for competitive insights
@@ -228,12 +231,12 @@ func (ca *CompetitiveAnalyzer) extractCompetitiveData(ctx context.Context, docum
 		// For now, we'll simulate with document type-based extraction
 
 		switch doc.Type {
-		case DocTypeFinancial:
+		case string(documents.DocTypeFinancial):
 			// Extract financial competitive data
 			competitiveData["marketSize"] = 1000000000.0 // $1B market
 			competitiveData["marketGrowth"] = 0.15       // 15% growth
 
-		case DocTypeLegal:
+		case string(documents.DocTypeLegal):
 			// Extract regulatory and competitive landscape
 			competitiveData["regulatoryBarriers"] = []string{
 				"Licensing requirements",

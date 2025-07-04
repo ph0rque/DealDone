@@ -7,16 +7,19 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+
+	"DealDone/internal/core/templates"
+	"DealDone/internal/infrastructure/ai"
 )
 
 // FieldMatcher provides intelligent field matching between documents and templates
 type FieldMatcher struct {
-	aiService *AIService
+	aiService *ai.AIService
 	synonyms  map[string][]string
 }
 
 // NewFieldMatcher creates a new field matcher
-func NewFieldMatcher(aiService *AIService) *FieldMatcher {
+func NewFieldMatcher(aiService *ai.AIService) *FieldMatcher {
 	return &FieldMatcher{
 		aiService: aiService,
 		synonyms:  initializeSynonyms(),
@@ -57,7 +60,7 @@ func initializeSynonyms() map[string][]string {
 }
 
 // MatchFields finds the best matches between source fields and template fields
-func (fm *FieldMatcher) MatchFields(sourceFields []string, templateFields []DataField) (*MatchingResult, error) {
+func (fm *FieldMatcher) MatchFields(sourceFields []string, templateFields []templates.DataField) (*MatchingResult, error) {
 	result := &MatchingResult{
 		Matches:         []FieldMatch{},
 		UnmatchedSource: make([]string, 0),
@@ -132,7 +135,7 @@ func (fm *FieldMatcher) normalizeFields(fields []string) []normalizedField {
 }
 
 // normalizeDataFields normalizes DataField names for matching
-func (fm *FieldMatcher) normalizeDataFields(fields []DataField) []normalizedField {
+func (fm *FieldMatcher) normalizeDataFields(fields []templates.DataField) []normalizedField {
 	normalized := make([]normalizedField, len(fields))
 	for i, field := range fields {
 		norm := fm.normalizeString(field.Name)
@@ -474,7 +477,7 @@ func (fm *FieldMatcher) calculateOverallScore(result *MatchingResult, totalSourc
 }
 
 // GetFieldMappingSuggestions provides suggestions for unmapped fields
-func (fm *FieldMatcher) GetFieldMappingSuggestions(unmatchedSource []string, templateFields []DataField) map[string][]string {
+func (fm *FieldMatcher) GetFieldMappingSuggestions(unmatchedSource []string, templateFields []templates.DataField) map[string][]string {
 	suggestions := make(map[string][]string)
 
 	for _, srcField := range unmatchedSource {

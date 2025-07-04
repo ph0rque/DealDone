@@ -6,17 +6,19 @@ import (
 	"math"
 	"sort"
 	"time"
+
+	"DealDone/internal/infrastructure/ai"
 )
 
 // AnomalyDetector performs anomaly detection across financial and operational data
 type AnomalyDetector struct {
-	aiService   *AIService
+	aiService   *ai.AIService
 	dataMapper  *DataMapper
 	sensitivity float64 // Sensitivity threshold (default 2.0 standard deviations)
 }
 
 // NewAnomalyDetector creates a new anomaly detector
-func NewAnomalyDetector(aiService *AIService, dataMapper *DataMapper) *AnomalyDetector {
+func NewAnomalyDetector(aiService *ai.AIService, dataMapper *DataMapper) *AnomalyDetector {
 	return &AnomalyDetector{
 		aiService:   aiService,
 		dataMapper:  dataMapper,

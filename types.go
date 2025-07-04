@@ -1,6 +1,7 @@
 package main
 
 import (
+	"DealDone/internal/infrastructure/ocr"
 	"time"
 )
 
@@ -223,7 +224,7 @@ type DocumentResult struct {
 	ProcessingTime   int64                  `json:"processingTimeMs"`
 	ExtractedFields  map[string]interface{} `json:"extractedFields,omitempty"`
 	TemplatesMatched []string               `json:"templatesMatched,omitempty"`
-	OCRResults       *OCRResult             `json:"ocrResults,omitempty"`
+	OCRResults       *ocr.OCRResult         `json:"ocrResults,omitempty"`
 	Errors           []string               `json:"errors,omitempty"`
 	Warnings         []string               `json:"warnings,omitempty"`
 	Metadata         map[string]interface{} `json:"metadata,omitempty"`

@@ -4,19 +4,22 @@ import (
 	"fmt"
 	"math"
 	"time"
+
+	"DealDone/internal/domain/analysis"
+	"DealDone/internal/infrastructure/ai"
 )
 
 // DealValuationCalculator performs various valuation methods for M&A deals
 type DealValuationCalculator struct {
-	aiService      *AIService
-	financialCache map[string]*FinancialAnalysis
+	aiService      *ai.AIService
+	financialCache map[string]*analysis.FinancialAnalysis
 }
 
 // NewDealValuationCalculator creates a new deal valuation calculator
-func NewDealValuationCalculator(aiService *AIService) *DealValuationCalculator {
+func NewDealValuationCalculator(aiService *ai.AIService) *DealValuationCalculator {
 	return &DealValuationCalculator{
 		aiService:      aiService,
-		financialCache: make(map[string]*FinancialAnalysis),
+		financialCache: make(map[string]*analysis.FinancialAnalysis),
 	}
 }
 
@@ -105,7 +108,7 @@ type Range struct {
 }
 
 // CalculateValuation performs comprehensive deal valuation
-func (dvc *DealValuationCalculator) CalculateValuation(dealName string, financialData *FinancialAnalysis, marketData map[string]interface{}) (*ValuationResult, error) {
+func (dvc *DealValuationCalculator) CalculateValuation(dealName string, financialData *analysis.FinancialAnalysis, marketData map[string]interface{}) (*ValuationResult, error) {
 	result := &ValuationResult{
 		DealName:      dealName,
 		ValuationDate: time.Now(),
@@ -149,7 +152,7 @@ func (dvc *DealValuationCalculator) CalculateValuation(dealName string, financia
 }
 
 // calculateDCF performs discounted cash flow analysis
-func (dvc *DealValuationCalculator) calculateDCF(financial *FinancialAnalysis, marketData map[string]interface{}) (*DCFResult, error) {
+func (dvc *DealValuationCalculator) calculateDCF(financial *analysis.FinancialAnalysis, marketData map[string]interface{}) (*DCFResult, error) {
 	dcf := &DCFResult{
 		Assumptions: make(map[string]float64),
 	}
@@ -218,7 +221,7 @@ func (dvc *DealValuationCalculator) calculateDCF(financial *FinancialAnalysis, m
 }
 
 // calculateMultiples calculates valuation based on financial multiples
-func (dvc *DealValuationCalculator) calculateMultiples(financial *FinancialAnalysis, marketData map[string]interface{}) *MultiplesValuation {
+func (dvc *DealValuationCalculator) calculateMultiples(financial *analysis.FinancialAnalysis, marketData map[string]interface{}) *MultiplesValuation {
 	multiples := &MultiplesValuation{}
 
 	// Get industry multiples
@@ -310,7 +313,7 @@ func (dvc *DealValuationCalculator) calculateMultiples(financial *FinancialAnaly
 }
 
 // performComparableAnalysis performs comparable company analysis
-func (dvc *DealValuationCalculator) performComparableAnalysis(financial *FinancialAnalysis, marketData map[string]interface{}) *ComparableAnalysis {
+func (dvc *DealValuationCalculator) performComparableAnalysis(financial *analysis.FinancialAnalysis, marketData map[string]interface{}) *ComparableAnalysis {
 	comps := &ComparableAnalysis{
 		ComparableCompanies: make([]ComparableCompany, 0),
 		Adjustments:         make(map[string]float64),
@@ -369,7 +372,7 @@ func (dvc *DealValuationCalculator) performComparableAnalysis(financial *Financi
 }
 
 // calculateAssetBased performs asset-based valuation
-func (dvc *DealValuationCalculator) calculateAssetBased(financial *FinancialAnalysis) *AssetBasedValuation {
+func (dvc *DealValuationCalculator) calculateAssetBased(financial *analysis.FinancialAnalysis) *AssetBasedValuation {
 	assetBased := &AssetBasedValuation{
 		TotalAssets:      financial.TotalAssets,
 		TotalLiabilities: financial.TotalLiabilities,
@@ -449,7 +452,7 @@ func (dvc *DealValuationCalculator) calculateSummaryRange(result *ValuationResul
 }
 
 // calculateConfidence calculates overall confidence in the valuation
-func (dvc *DealValuationCalculator) calculateConfidence(result *ValuationResult, financial *FinancialAnalysis) float64 {
+func (dvc *DealValuationCalculator) calculateConfidence(result *ValuationResult, financial *analysis.FinancialAnalysis) float64 {
 	confidence := 0.0
 	factors := 0
 
@@ -529,7 +532,7 @@ func (dvc *DealValuationCalculator) extractAssumptions(marketData map[string]int
 }
 
 // calculateSimilarity calculates similarity score between target and comparable
-func (dvc *DealValuationCalculator) calculateSimilarity(target *FinancialAnalysis, comp *ComparableCompany) float64 {
+func (dvc *DealValuationCalculator) calculateSimilarity(target *analysis.FinancialAnalysis, comp *ComparableCompany) float64 {
 	score := 0.0
 	factors := 0.0
 
@@ -563,7 +566,7 @@ func (dvc *DealValuationCalculator) calculateSimilarity(target *FinancialAnalysi
 }
 
 // getDefaultComparables returns default comparable companies
-func (dvc *DealValuationCalculator) getDefaultComparables(financial *FinancialAnalysis) []ComparableCompany {
+func (dvc *DealValuationCalculator) getDefaultComparables(financial *analysis.FinancialAnalysis) []ComparableCompany {
 	// In a real implementation, this would fetch from a database or API
 	// For now, return synthetic comparables based on the target
 

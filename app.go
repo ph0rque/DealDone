@@ -6,6 +6,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"embed"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -19,42 +20,58 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+
+	"DealDone/internal/core/deals"
+	"DealDone/internal/core/documents"
+	"DealDone/internal/core/templates"
+	"DealDone/internal/domain/analysis"
+	"DealDone/internal/domain/queue"
+	"DealDone/internal/domain/workflow"
+	"DealDone/internal/infrastructure/ai"
+	"DealDone/internal/infrastructure/n8n"
+	"DealDone/internal/infrastructure/ocr"
+	"DealDone/internal/infrastructure/webhooks"
 )
+
+// embed is a special comment directive that tells the Go compiler to embed the frontend directory
+//
+//go:embed all:frontend/dist
+var assets embed.FS
 
 // App struct
 type App struct {
 	ctx                     context.Context
 	configService           *ConfigService
-	folderManager           *FolderManager
+	folderManager           *deals.FolderManager
 	permissionChecker       *PermissionChecker
-	templateManager         *TemplateManager
-	templateDiscovery       *TemplateDiscovery
-	documentProcessor       *DocumentProcessor
-	aiService               *AIService
-	ocrService              *OCRService
-	documentRouter          *DocumentRouter
-	aiConfigManager         *AIConfigManager
-	templateParser          *TemplateParser
-	dataMapper              *DataMapper
+	templateManager         *templates.TemplateManager
+	templateDiscovery       *templates.TemplateDiscovery
+	documentProcessor       *documents.DocumentProcessor
+	aiService               *ai.AIService
+	ocrService              *ocr.OCRService
+	documentRouter          *documents.DocumentRouter
+	aiConfigManager         *ai.AIConfigManager
+	templateParser          *templates.TemplateParser
+	dataMapper              *analysis.DataMapper
 	fieldMatcher            *FieldMatcher
-	templatePopulator       *TemplatePopulator
+	templatePopulator       *templates.TemplatePopulator
 	dealValuationCalculator *DealValuationCalculator
 	competitiveAnalyzer     *CompetitiveAnalyzer
 	trendAnalyzer           *TrendAnalyzer
 	anomalyDetector         *AnomalyDetector
-	webhookService          *WebhookService
-	webhookHandlers         *WebhookHandlers
+	webhookService          *webhooks.WebhookService
+	webhookHandlers         *webhooks.WebhookHandlers
 	webhookServer           *http.Server
 	webhookServerConfig     *WebhookServerConfig
 	webhookServerMu         sync.RWMutex
 	jobTracker              *JobTracker
-	n8nIntegration          *N8nIntegrationService
-	schemaValidator         *WebhookSchemaValidator
+	n8nIntegration          *n8n.N8nIntegrationService
+	schemaValidator         *webhooks.WebhookSchemaValidator
 	authManager             *AuthManager
-	queueManager            *QueueManager
-	conflictResolver        *ConflictResolver
-	workflowRecovery        *WorkflowRecoveryService
-	correctionProcessor     *CorrectionProcessor
+	queueManager            *queue.QueueManager
+	conflictResolver        *workflow.ConflictResolver
+	workflowRecovery        *workflow.WorkflowRecoveryService
+	correctionProcessor     *workflow.CorrectionProcessor
 }
 
 // NewApp creates a new App application struct
@@ -104,19 +121,19 @@ func (a *App) startup(ctx context.Context) {
 	a.configService = configService
 
 	// Initialize folder manager
-	a.folderManager = NewFolderManager(configService)
+	a.folderManager = deals.NewFolderManager(configService)
 
 	// Initialize permission checker
 	a.permissionChecker = NewPermissionChecker()
 
 	// Initialize template manager
-	a.templateManager = NewTemplateManager(configService)
+	a.templateManager = templates.NewTemplateManager(configService)
 
 	// Initialize template discovery
-	a.templateDiscovery = NewTemplateDiscovery(a.templateManager)
+	a.templateDiscovery = templates.NewTemplateDiscovery(a.templateManager)
 
 	// Initialize AI configuration manager with timeout to prevent hanging
-	var aiConfigManager *AIConfigManager
+	var aiConfigManager *ai.AIConfigManager
 	done := make(chan bool, 1)
 	var aiConfigErr error
 
@@ -126,7 +143,7 @@ func (a *App) startup(ctx context.Context) {
 				done <- true
 			}
 		}()
-		aiConfigManager, aiConfigErr = NewAIConfigManager(configService)
+		aiConfigManager, aiConfigErr = ai.NewAIConfigManager(configService)
 		done <- true
 	}()
 
@@ -135,8 +152,8 @@ func (a *App) startup(ctx context.Context) {
 		if aiConfigErr != nil {
 			fmt.Printf("Error initializing AI config: %v\n", aiConfigErr)
 			// Create with default config
-			aiConfigManager = &AIConfigManager{
-				config: &AIConfig{
+			aiConfigManager = &ai.AIConfigManager{
+				config: &ai.AIConfig{
 					CacheTTL:  time.Minute * 30,
 					RateLimit: 60,
 				},
@@ -144,8 +161,8 @@ func (a *App) startup(ctx context.Context) {
 		}
 	case <-time.After(5 * time.Second):
 		// Create with default config if initialization takes too long
-		aiConfigManager = &AIConfigManager{
-			config: &AIConfig{
+		aiConfigManager = &ai.AIConfigManager{
+			config: &ai.AIConfig{
 				CacheTTL:  time.Minute * 30,
 				RateLimit: 60,
 			},
@@ -154,23 +171,23 @@ func (a *App) startup(ctx context.Context) {
 	a.aiConfigManager = aiConfigManager
 
 	// Initialize AI service with config
-	aiService := NewAIService(aiConfigManager.GetConfig())
+	aiService := ai.NewAIService(aiConfigManager.GetConfig())
 	a.aiService = aiService
 
 	// Initialize OCR service with tesseract as default provider
-	a.ocrService = NewOCRService("tesseract") // Enable OCR with tesseract
+	a.ocrService = ocr.NewOCRService("tesseract") // Enable OCR with tesseract
 
 	// Always initialize document processor and router - these are essential
-	a.documentProcessor = NewDocumentProcessor(aiService)
+	a.documentProcessor = documents.NewDocumentProcessor(aiService)
 	a.documentProcessor.SetOCRService(a.ocrService) // Set OCR service for PDF processing
-	a.documentRouter = NewDocumentRouter(a.folderManager, a.documentProcessor)
+	a.documentRouter = documents.NewDocumentRouter(a.folderManager, a.documentProcessor)
 
 	// Initialize template processing services
 	templatesPath := configService.GetTemplatesPath()
-	a.templateParser = NewTemplateParser(templatesPath)
+	a.templateParser = templates.NewTemplateParser(templatesPath)
 	a.fieldMatcher = NewFieldMatcher(aiService)
 	a.dataMapper = NewDataMapper(aiService, a.templateParser)
-	a.templatePopulator = NewTemplatePopulator(a.templateParser)
+	a.templatePopulator = templates.NewTemplatePopulator(a.templateParser)
 
 	// Initialize analysis services
 	a.dealValuationCalculator = NewDealValuationCalculator(aiService)
@@ -694,9 +711,9 @@ func (a *App) UpdateAIConfiguration(updates map[string]interface{}) error {
 	}
 
 	// Reinitialize AI service with new config
-	a.aiService = NewAIService(a.aiConfigManager.GetConfig())
-	a.documentProcessor = NewDocumentProcessor(a.aiService)
-	a.documentRouter = NewDocumentRouter(a.folderManager, a.documentProcessor)
+	a.aiService = ai.NewAIService(a.aiConfigManager.GetConfig())
+	a.documentProcessor = documents.NewDocumentProcessor(a.aiService)
+	a.documentRouter = documents.NewDocumentRouter(a.folderManager, a.documentProcessor)
 
 	return nil
 }
@@ -707,7 +724,7 @@ func (a *App) SetAIProvider(provider string) error {
 		return fmt.Errorf("AI configuration not initialized")
 	}
 
-	return a.aiConfigManager.SetPreferredProvider(AIProvider(provider))
+	return a.aiConfigManager.SetPreferredProvider(ai.AIProvider(provider))
 }
 
 // SetAIAPIKey sets an API key for a provider
@@ -716,14 +733,14 @@ func (a *App) SetAIAPIKey(provider string, apiKey string) error {
 		return fmt.Errorf("AI configuration not initialized")
 	}
 
-	if err := a.aiConfigManager.SetAPIKey(AIProvider(provider), apiKey); err != nil {
+	if err := a.aiConfigManager.SetAPIKey(ai.AIProvider(provider), apiKey); err != nil {
 		return err
 	}
 
 	// Reinitialize AI service with new config
-	a.aiService = NewAIService(a.aiConfigManager.GetConfig())
-	a.documentProcessor = NewDocumentProcessor(a.aiService)
-	a.documentRouter = NewDocumentRouter(a.folderManager, a.documentProcessor)
+	a.aiService = ai.NewAIService(a.aiConfigManager.GetConfig())
+	a.documentProcessor = documents.NewDocumentProcessor(a.aiService)
+	a.documentRouter = documents.NewDocumentRouter(a.folderManager, a.documentProcessor)
 
 	return nil
 }

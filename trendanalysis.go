@@ -5,17 +5,21 @@ import (
 	"fmt"
 	"math"
 	"time"
+
+	"DealDone/internal/core/documents"
+	"DealDone/internal/domain/analysis"
+	"DealDone/internal/infrastructure/ai"
 )
 
 // TrendAnalyzer performs trend analysis across multiple documents
 type TrendAnalyzer struct {
-	aiService  *AIService
-	dataMapper *DataMapper
+	aiService  *ai.AIService
+	dataMapper *analysis.DataMapper
 	timeWindow time.Duration // Default analysis window
 }
 
 // NewTrendAnalyzer creates a new trend analyzer
-func NewTrendAnalyzer(aiService *AIService, dataMapper *DataMapper) *TrendAnalyzer {
+func NewTrendAnalyzer(aiService *ai.AIService, dataMapper *analysis.DataMapper) *TrendAnalyzer {
 	return &TrendAnalyzer{
 		aiService:  aiService,
 		dataMapper: dataMapper,
@@ -217,7 +221,7 @@ type TrendAnomaly struct {
 }
 
 // AnalyzeTrends performs comprehensive trend analysis across documents
-func (ta *TrendAnalyzer) AnalyzeTrends(ctx context.Context, dealName string, documents []DocumentInfo, historicalData map[string]interface{}) (*TrendAnalysisResult, error) {
+func (ta *TrendAnalyzer) AnalyzeTrends(ctx context.Context, dealName string, documents []documents.DocumentInfo, historicalData map[string]interface{}) (*TrendAnalysisResult, error) {
 	result := &TrendAnalysisResult{
 		DealName:     dealName,
 		AnalysisDate: time.Now(),
@@ -262,7 +266,7 @@ func (ta *TrendAnalyzer) AnalyzeTrends(ctx context.Context, dealName string, doc
 }
 
 // extractTimeSeriesData extracts time series data from documents
-func (ta *TrendAnalyzer) extractTimeSeriesData(ctx context.Context, documents []DocumentInfo) (map[string][]DataPoint, error) {
+func (ta *TrendAnalyzer) extractTimeSeriesData(ctx context.Context, documents []documents.DocumentInfo) (map[string][]DataPoint, error) {
 	timeSeriesData := make(map[string][]DataPoint)
 
 	// In a real implementation, this would parse documents and extract time series

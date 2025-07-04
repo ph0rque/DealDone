@@ -449,3 +449,76 @@ Users can:
 - UI polish and animations
 - Advanced reporting features
 - Collaboration features 
+
+# Progress Tracking
+
+## Current State
+
+### Backend Architecture Refactoring (PRD-2.0) - IN PROGRESS
+
+#### Completed Tasks ✅
+1. **Task 1.0 - Foundation Setup**: 
+   - Created complete directory structure under `internal/`
+   - Created `cmd/dealdone/main.go` as new entry point
+   - Added doc.go files for all packages
+   - Created shared types and logger interface
+
+2. **Task 2.0 - Core Business Logic**:
+   - Moved 12 template files to `internal/core/templates/`
+   - Moved document processing files to `internal/core/documents/`
+   - Moved folder management to `internal/core/deals/`
+   - Created service interfaces and types for each package
+
+3. **Task 3.0 - Infrastructure Packages**:
+   - Moved AI files to `internal/infrastructure/ai/`
+   - Moved webhook files to `internal/infrastructure/webhooks/`
+   - Moved n8n integration to `internal/infrastructure/n8n/`
+   - Moved storage to `internal/infrastructure/storage/`
+   - Moved OCR to `internal/infrastructure/ocr/`
+
+#### Current Challenges ⚠️
+**Task 4.0 - Application Layer** is facing significant challenges:
+- **Circular Dependencies**: The existing codebase has tightly coupled components
+- **Large Monolithic Files**: app.go has 5000+ lines with mixed concerns
+- **Type Organization**: types.go has 766 lines with all type definitions mixed together
+- **Embed Directive Issues**: Frontend assets embedding doesn't work well with new structure
+
+#### Files Still in Root Directory
+- Main application files: app.go, main.go, types.go
+- Domain logic files: various analysis files, queue management, workflow files
+- Configuration and utilities: config.go, permissions.go, utils.go
+- Test files and other supporting files
+
+### What Works ✅
+- New directory structure is in place
+- Core packages are organized with proper interfaces
+- Infrastructure packages are properly separated
+- Package declarations updated for moved files
+
+### What's Left to Build 🚧
+1. **Complete Task 4.0**: Resolve circular dependencies and complete app layer
+2. **Task 5.0**: Clean up root directory and ensure build passes
+3. **Task 6.0**: Organize domain logic properly
+4. **Tasks 7-10**: Enhance shared utilities, configuration, testing, and documentation
+
+### Next Steps
+1. Consider incremental approach: Keep existing app.go working while gradually migrating functionality
+2. Use interfaces to break circular dependencies
+3. Move remaining files from root to appropriate packages
+4. Update import paths and fix compilation errors
+5. Ensure tests continue to pass
+
+### Known Issues
+- Build currently fails due to undefined types and circular imports
+- Many files still reference old types from root package
+- Need to handle the monolithic app.go file carefully to avoid breaking functionality
+
+## Recent Changes
+- Attempted to create application layer but encountered circular dependency issues
+- Copied various files to their new locations but haven't completed the migration
+- Created service interfaces for core and infrastructure packages
+- Started organizing domain logic files
+
+## Testing Status
+- Tests not yet updated for new structure
+- Will need comprehensive testing after migration is complete 
